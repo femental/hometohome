@@ -9,17 +9,22 @@
         "lint": "eslint",
         "test": "vitest run --project unit",
         "test:db": "vitest run --project db",
-        "db:up": "docker compose up -d db"
+        "db:up": "docker compose up -d db",
+        "db:generate": "prisma generate",
+        "postinstall": "prisma generate"
     },
     "dependencies": {
+        "@prisma/adapter-pg": "7.10.1",
         "@prisma/client": "7.10.1",
         "next": "16.4.6",
+        "pg": "8.23.1",
         "react": "19.3.0",
         "react-dom": "19.3.0"
     },
     "devDependencies": {
         "@tailwindcss/turbopack": "4.3.3",
         "@types/node": "^22.20.5",
+        "@types/pg": "^8.23.1",
         "@types/react": "^19",
         "@types/react-dom": "^19",
         "eslint": "^9",

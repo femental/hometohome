@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  guest
+  admin
+}
+
+enum PublishStatus {
+  draft
+  published
+  hidden
+}
+
+enum RoomType {
+  single
+  double
+}
+
+enum GenderPolicy {
+  male
+  female
+  any
+}
+
+enum BookingStatus {
+  requested
+  rejected
+  request_expired
+  withdrawn
+  awaiting_payment
+  payment_expired
+  confirmed
+  cancelled
+  completed
+}
+
+enum PaymentMethod {
+  card
+  paypal
+  offline
+}
+
+enum Currency {
+  KRW
+  USD
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  cancelled
+  partially_refunded
+  refunded
+}
+
+enum RefundReason {
+  guest_cancel_full
+  guest_cancel_deposit_only
+  admin_cancel
+  late_payment_auto
+}
+
+enum RefundStatus {
+  pending
+  done
+  failed
+}
+
+/// id is the Supabase auth user id.
+model User {
+  id        String   @id
+  email     String   @unique
+  name      String
+  role      UserRole @default(guest)
+  locale    String   @default("en")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  hosts    Host[]
+  bookings Booking[]
+
+  @@map("users")
+}
+
+model Host {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  displayName String   @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user   User    @relation(fields: [userId], references: [id])
+  houses House[]
+
+  @@index([userId])
+  @@map("hosts")
+}
+
+model House {
+  id              String        @id @default(uuid())
+  hostId          String        @map("host_id")
+  status          PublishStatus @default(draft)
+  /// { en: string; ko?: string }
+  name            Json
+  /// { en: string; ko?: string }
+  description     Json
+  /// { en: string; ko?: string }
+  houseRules      Json          @map("house_rules")
+  addressKo       String        @map("address_ko")
+  addressEn       String?       @map("address_en")
+  district        String
+  lat             Float
+  lng             Float
+  /// [{ name_en, name_ko, line, walk_min }]
+  nearestStations Json          @default("[]") @map("nearest_stations")
+  amenities       String[]      @default([])
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  host   Host         @relation(fields: [hostId], references: [id])
+  photos HousePhoto[]
+  rooms  Room[]
+
+  @@index([hostId])
+  @@index([district])
+  @@map("houses")
+}
+
+model HousePhoto {
+  id          String @id @default(uuid())
+  houseId     String @map("house_id")
+  storagePath String @map("storage_path")
+  sortOrder   Int    @default(0) @map("sort_order")
+
+  house House @relation(fields: [houseId], references: [id], onDelete: Cascade)
+
+  @@index([houseId])
+  @@map("house_photos")
+}
+
+model Room {
+  id                    String        @id @default(uuid())
+  houseId               String        @map("house_id")
+  status                PublishStatus @default(draft)
+  /// { en: string; ko?: string }
+  name                  Json
+  /// { en: string; ko?: string }
+  description           Json
+  monthlyRent           Int           @map("monthly_rent")
+  deposit               Int
+  availableFrom         DateTime      @map("available_from") @db.Date
+  roomType              RoomType      @map("room_type")
+  privateBathroom       Boolean       @default(false) @map("private_bathroom")
+  genderPolicy          GenderPolicy  @default(any) @map("gender_policy")
+  maxOccupants          Int           @map("max_occupants")
+  extraPersonMonthlyFee Int           @default(0) @map("extra_person_monthly_fee")
+
+  house    House       @relation(fields: [houseId], references: [id])
+  photos   RoomPhoto[]
+  blocks   RoomBlock[]
+  bookings Booking[]
+
+  @@index([houseId])
+  @@map("rooms")
+}
+
+model RoomPhoto {
+  id          String @id @default(uuid())
+  roomId      String @map("room_id")
+  storagePath String @map("storage_path")
+  sortOrder   Int    @default(0) @map("sort_order")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@map("room_photos")
+}
+
+model RoomBlock {
+  id               String   @id @default(uuid())
+  roomId           String   @map("room_id")
+  startDate        DateTime @map("start_date") @db.Date
+  endDateExclusive DateTime @map("end_date_exclusive") @db.Date
+  reason           String?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@map("room_blocks")
+}
+
+model Booking {
+  id      String @id @default(uuid())
+  roomId  String @map("room_id")
+  guestId String @map("guest_id")
+
+  /// Checkout day, exclusive (last night + 1 day).
+  moveIn  DateTime @map("move_in") @db.Date
+  moveOut DateTime @map("move_out") @db.Date
+
+  guestName   String  @map("guest_name")
+  nationality String
+  gender      String
+  contact     String?
+  message     String?
+
+  occupants        Int     @default(1)
+  coOccupantName   String? @map("co_occupant_name")
+  coOccupantGender String? @map("co_occupant_gender")
+
+  // Price snapshot (PriceQuote), fixed at request time.
+  monthlyRent       Int @map("monthly_rent")
+  deposit           Int
+  fullMonths        Int @map("full_months")
+  extraDays         Int @map("extra_days")
+  proratedAmount    Int @map("prorated_amount")
+  stayTotal         Int @map("stay_total")
+  firstRentAmount   Int @map("first_rent_amount")
+  firstPaymentTotal Int @map("first_payment_total")
+
+  status           BookingStatus @default(requested)
+  requestedAt      DateTime      @default(now()) @map("requested_at") @db.Timestamptz(3)
+  requestExpiresAt DateTime?     @map("request_expires_at") @db.Timestamptz(3)
+  approvedAt       DateTime?     @map("approved_at") @db.Timestamptz(3)
+  holdExpiresAt    DateTime?     @map("hold_expires_at") @db.Timestamptz(3)
+  confirmedAt      DateTime?     @map("confirmed_at") @db.Timestamptz(3)
+  cancelledAt      DateTime?     @map("cancelled_at") @db.Timestamptz(3)
+  cancelReason     String?       @map("cancel_reason")
+  rejectedReason   String?       @map("rejected_reason")
+
+  depositReturnedAt DateTime? @map("deposit_returned_at") @db.Timestamptz(3)
+  depositReturnNote String?   @map("deposit_return_note")
+
+  room     Room      @relation(fields: [roomId], references: [id])
+  guest    User      @relation(fields: [guestId], references: [id])
+  payments Payment[]
+
+  @@index([roomId, status])
+  @@index([guestId])
+  @@index([status, requestExpiresAt])
+  @@index([status, holdExpiresAt])
+  @@map("bookings")
+}
+
+/// id doubles as the PortOne paymentId.
+model Payment {
+  id                 String        @id @default(uuid())
+  bookingId          String        @map("booking_id")
+  method             PaymentMethod
+  offlineNote        String?       @map("offline_note")
+  amountKrw          Int           @map("amount_krw")
+  currency           Currency      @default(KRW)
+  /// Amount actually charged, in minor units of `currency` (KRW: won, USD: cents).
+  amountChargedMinor Int           @map("amount_charged_minor")
+  /// KRW per 1 USD, when currency is USD.
+  fxRate             Decimal?      @map("fx_rate") @db.Decimal(12, 4)
+  fxQuotedAt         DateTime?     @map("fx_quoted_at") @db.Timestamptz(3)
+  status             PaymentStatus @default(pending)
+  pgTxId             String?       @map("pg_tx_id")
+  raw                Json?
+  paidAt             DateTime?     @map("paid_at") @db.Timestamptz(3)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  booking Booking  @relation(fields: [bookingId], references: [id])
+  refunds Refund[]
+
+  @@index([bookingId])
+  @@map("payments")
+}
+
+model Refund {
+  id                  String       @id @default(uuid())
+  paymentId           String       @map("payment_id")
+  reason              RefundReason
+  amountKrw           Int          @map("amount_krw")
+  /// Refunded amount in minor units of the payment's charge currency.
+  amountRefundedMinor Int          @map("amount_refunded_minor")
+  status              RefundStatus @default(pending)
+  /// True when the operator sends the money outside the PG (offline payments).
+  manual              Boolean      @default(false)
+  pgRefundId          String?      @map("pg_refund_id")
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+model EmailLog {
+  id        String   @id @default(uuid())
+  toEmail   String   @map("to_email")
+  template  String
+  subject   String?
+  bookingId String?  @map("booking_id")
+  status    String   @default("sent")
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([bookingId])
+  @@map("email_log")
+}
