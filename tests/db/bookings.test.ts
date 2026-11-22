@@ -446,6 +446,36 @@ describe("payment", () => {
     expect((await prisma.booking.findUniqueOrThrow({ where: { id: b.id } })).status).toBe("cancelled");
   });
 
+  test("duplicate payment re-delivered after cancellation → the existing auto refund, no second one", async () => {
+    const b = await confirmedBooking(await makeRoom(prisma));
+    const dup = await paidCardPayment(b);
+    const first = await confirmPaid(prisma, b.id, dup.id, now);
+    expect(first).toEqual({ result: "duplicate_payment", refundId: expect.any(String) });
+    await cancelBooking(prisma, b.id, { kind: "guest", userId: b.guestId }, at("2027-03-05T00:00:00Z"));
+    const again = await confirmPaid(prisma, b.id, dup.id, at("2027-03-05T01:00:00Z"));
+    expect(again).toEqual(first);
+    const refunds = await prisma.refund.findMany({ where: { paymentId: dup.id } });
+    expect(refunds.map((r) => [r.id, r.reason])).toEqual([[(first as { refundId: string }).refundId, "duplicate_payment_auto"]]);
+  });
+
+  test("repeat confirmPaid stays idempotent after the payment is marked refunded", async () => {
+    // Confirming payment: still already_confirmed.
+    const b1 = await confirmedBooking(await makeRoom(prisma));
+    await prisma.payment.update({ where: { id: b1.confirmedPaymentId! }, data: { status: "refunded" } });
+    expect(await confirmPaid(prisma, b1.id, b1.confirmedPaymentId!, now)).toEqual({ result: "already_confirmed" });
+
+    // Late payment: still the same refund.
+    const b2 = await requestOn(await makeRoom(prisma));
+    await approveRequest(prisma, b2.id, now);
+    const p = await paidCardPayment(b2);
+    const late = new Date(now.getTime() + 25 * HOUR);
+    const first = await confirmPaid(prisma, b2.id, p.id, late);
+    expect(first).toEqual({ result: "late_payment", refundId: expect.any(String) });
+    await prisma.payment.update({ where: { id: p.id }, data: { status: "refunded" } });
+    expect(await confirmPaid(prisma, b2.id, p.id, new Date(late.getTime() + HOUR))).toEqual(first);
+    expect(await prisma.refund.count({ where: { paymentId: p.id } })).toBe(1);
+  });
+
   test("paid payment on an admin-cancelled hold → late_payment with refund", async () => {
     const room = await makeRoom(prisma);
     const b = await requestOn(room);
@@ -602,6 +632,22 @@ describe("cancel", () => {
     const refund = await prisma.refund.findUniqueOrThrow({ where: { id: r.refundIds[0] } });
     // round(98765 * 500000 / 1300000) = round(37986.53...) = 37987
     expect(refund).toMatchObject({ reason: "guest_cancel_deposit_only", amountKrw: 500_000, amountRefundedMinor: 37_987 });
+  });
+
+  test("cancel with a duplicate payment refunds only the confirming payment", async () => {
+    const b = await confirmedBooking(await makeRoom(prisma));
+    const dup = await paidCardPayment(b);
+    const dupRes = await confirmPaid(prisma, b.id, dup.id, now);
+    expect(dupRes).toEqual({ result: "duplicate_payment", refundId: expect.any(String) });
+
+    const r = await cancelBooking(prisma, b.id, { kind: "guest", userId: b.guestId }, at("2027-03-05T00:00:00Z"));
+    expect(r.refundIds).toHaveLength(1);
+    const cancelRefund = await prisma.refund.findUniqueOrThrow({ where: { id: r.refundIds[0] } });
+    expect(cancelRefund).toMatchObject({ paymentId: b.confirmedPaymentId, reason: "guest_cancel_full", amountKrw: 1_300_000 });
+    const dupRefunds = await prisma.refund.findMany({ where: { paymentId: dup.id } });
+    expect(dupRefunds.map((x) => [x.id, x.reason])).toEqual([
+      [(dupRes as { refundId: string }).refundId, "duplicate_payment_auto"],
+    ]);
   });
 
   test("guest cannot cancel someone else's booking", async () => {

@@ -45,14 +45,14 @@ class Refusal {
 const refuse = (code: BookingErrorCode, detail?: string) => new Refusal(new BookingError(code, detail));
 
 function inTransaction<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
-  // Already inside the caller's transaction: join it.
-  return "$transaction" in db ? db.$transaction(fn) : fn(db);
+  // A top-level client opens a transaction; a caller's transaction client nests a savepoint in it.
+  return db.$transaction(fn);
 }
 
 /**
  * Locks the booking row (`FOR UPDATE`), persists a read-time expiry if the stored status is
  * stale, then runs `fn` with the up-to-date row. `fn` returns a `Refusal` to fail while keeping
- * the expiry write; it must only do so before making writes of its own.
+ * the expiry write and any writes `fn` made before refusing (e.g. approve's stale-hold release).
  */
 async function withLockedBooking<T>(
   db: Db,
@@ -243,18 +243,21 @@ async function confirmLocked(tx: Tx, b: Booking, paymentId: string, now: Date): 
   return rejected.map((r) => r.id).sort();
 }
 
-/** The single full refund for a payment that cannot be kept; repeat calls reuse it. */
-async function ensureAutoRefund(
+/** The auto refund a payment already got, whichever reason it was given under. */
+function findAutoRefund(tx: Tx, paymentId: string) {
+  return tx.refund.findFirst({
+    where: { paymentId, reason: { in: ["late_payment_auto", "duplicate_payment_auto"] } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, reason: true },
+  });
+}
+
+/** The single full refund for a payment that cannot be kept; callers check `findAutoRefund` first. */
+async function createAutoRefund(
   tx: Tx,
   payment: Payment,
   reason: "late_payment_auto" | "duplicate_payment_auto",
 ): Promise<string> {
-  const existing = await tx.refund.findFirst({
-    where: { paymentId: payment.id, reason },
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
-  });
-  if (existing) return existing.id;
   const created = await tx.refund.create({
     data: {
       paymentId: payment.id,
@@ -280,31 +283,41 @@ export type ConfirmPaidResult =
  * - same payment again → `already_confirmed` (no writes)
  * - another payment on a confirmed booking → `duplicate_payment`
  * - payment after the hold expired, or on a cancelled hold → `late_payment`
- * Late and duplicate payments get one pending full refund row (reused on repeat calls) for
- * the caller to execute.
+ * Late and duplicate payments get one pending full refund row for the caller to execute. A
+ * payment never gets a second one: repeat calls return the existing row under its original
+ * result, even after the booking or the payment status has moved on (e.g. refunded).
  */
 export function confirmPaid(db: Db, bookingId: string, paymentId: string, now: Date): Promise<ConfirmPaidResult> {
   return withLockedBooking<ConfirmPaidResult>(db, bookingId, now, async (tx, b) => {
     const payment = await tx.payment.findUnique({ where: { id: paymentId } });
     if (!payment || payment.bookingId !== b.id) return refuse("INVALID_STATE", "payment does not belong to booking");
+
+    // Repeat calls are answered before the payment's own checks: by the time a webhook is
+    // re-delivered, phase 4 may have marked the payment refunded or partially_refunded.
+    // The payment that confirmed this booking is never late or duplicate, whatever happened since
+    // (completed, or cancelled with its own cancellation refund).
+    if (b.confirmedPaymentId === payment.id) return { result: "already_confirmed" };
+    const existing = await findAutoRefund(tx, payment.id);
+    if (existing) {
+      return existing.reason === "duplicate_payment_auto"
+        ? { result: "duplicate_payment", refundId: existing.id }
+        : { result: "late_payment", refundId: existing.id };
+    }
+
     if (payment.status !== "paid") return refuse("INVALID_STATE", `payment is ${payment.status}`);
     if (payment.amountKrw !== b.firstPaymentTotal) {
       return refuse("INVALID_STATE", `payment amount ${payment.amountKrw} != ${b.firstPaymentTotal}`);
     }
-
-    // The payment that confirmed this booking is never late or duplicate, whatever happened since
-    // (completed, or cancelled with its own cancellation refund).
-    if (b.confirmedPaymentId === payment.id) return { result: "already_confirmed" };
 
     switch (b.status) {
       case "awaiting_payment": // live: withLockedBooking already persisted an expired hold
         return { result: "confirmed", autoRejectedIds: await confirmLocked(tx, b, payment.id, now) };
       case "confirmed":
       case "completed":
-        return { result: "duplicate_payment", refundId: await ensureAutoRefund(tx, payment, "duplicate_payment_auto") };
+        return { result: "duplicate_payment", refundId: await createAutoRefund(tx, payment, "duplicate_payment_auto") };
       case "payment_expired":
       case "cancelled":
-        return { result: "late_payment", refundId: await ensureAutoRefund(tx, payment, "late_payment_auto") };
+        return { result: "late_payment", refundId: await createAutoRefund(tx, payment, "late_payment_auto") };
       default:
         return invalidState(b);
     }
@@ -348,9 +361,10 @@ function refundReason(actor: CancelActor, decision: RefundDecision): RefundReaso
 }
 
 /**
- * Cancels a confirmed booking (guest: own booking only) and records pending refund rows for
- * the caller to execute; offline payments get `manual` rows. An operator may also cancel an
- * unpaid hold, which creates no refund.
+ * Cancels a confirmed booking (guest: own booking only) and records a pending refund row on the
+ * confirming payment for the caller to execute; an offline payment gets a `manual` row. Any
+ * other payment on the booking is a duplicate that already carries its own full auto refund.
+ * An operator may also cancel an unpaid hold, which creates no refund.
  */
 export function cancelBooking(
   db: Db,
@@ -373,26 +387,22 @@ export function cancelBooking(
       });
       if (refund.kind === "not_allowed") return refuse("CANCEL_NOT_ALLOWED");
 
-      const payments = await tx.payment.findMany({
-        where: { bookingId: b.id, status: "paid" },
-        orderBy: { createdAt: "asc" },
+      if (!b.confirmedPaymentId) return refuse("INVALID_STATE", "confirmed booking has no confirming payment");
+      const payment = await tx.payment.findUniqueOrThrow({ where: { id: b.confirmedPaymentId } });
+      const row = await tx.refund.create({
+        data: {
+          paymentId: payment.id,
+          reason: refundReason(actor, refund),
+          amountKrw: refund.amountKrw,
+          amountRefundedMinor:
+            payment.currency === "KRW"
+              ? refund.amountKrw
+              : proportionalRefundMinor(payment.amountChargedMinor, payment.amountKrw, refund.amountKrw),
+          status: "pending",
+          manual: payment.method === "offline",
+        },
       });
-      for (const payment of payments) {
-        const row = await tx.refund.create({
-          data: {
-            paymentId: payment.id,
-            reason: refundReason(actor, refund),
-            amountKrw: refund.amountKrw,
-            amountRefundedMinor:
-              payment.currency === "KRW"
-                ? refund.amountKrw
-                : proportionalRefundMinor(payment.amountChargedMinor, payment.amountKrw, refund.amountKrw),
-            status: "pending",
-            manual: payment.method === "offline",
-          },
-        });
-        refundIds.push(row.id);
-      }
+      refundIds.push(row.id);
     } else if (b.status === "awaiting_payment" && actor.kind === "admin") {
       refund = { kind: "not_allowed", amountKrw: 0 };
     } else {
