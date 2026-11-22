@@ -292,12 +292,15 @@ export function confirmPaid(db: Db, bookingId: string, paymentId: string, now: D
       return refuse("INVALID_STATE", `payment amount ${payment.amountKrw} != ${b.firstPaymentTotal}`);
     }
 
+    // The payment that confirmed this booking is never late or duplicate, whatever happened since
+    // (completed, or cancelled with its own cancellation refund).
+    if (b.confirmedPaymentId === payment.id) return { result: "already_confirmed" };
+
     switch (b.status) {
       case "awaiting_payment": // live: withLockedBooking already persisted an expired hold
         return { result: "confirmed", autoRejectedIds: await confirmLocked(tx, b, payment.id, now) };
       case "confirmed":
       case "completed":
-        if (b.confirmedPaymentId === payment.id) return { result: "already_confirmed" };
         return { result: "duplicate_payment", refundId: await ensureAutoRefund(tx, payment, "duplicate_payment_auto") };
       case "payment_expired":
       case "cancelled":

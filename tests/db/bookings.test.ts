@@ -432,6 +432,20 @@ describe("payment", () => {
     expect(after.confirmedPaymentId).not.toBe(second.id);
   });
 
+  test("repeat confirmPaid for the confirming payment after cancellation → already_confirmed, no extra refund", async () => {
+    const room = await makeRoom(prisma);
+    const b = await requestOn(room);
+    await approveRequest(prisma, b.id, now);
+    const p = await paidCardPayment(b);
+    await confirmPaid(prisma, b.id, p.id, now);
+    const cancel = await cancelBooking(prisma, b.id, { kind: "guest", userId: b.guestId }, at("2027-03-05T00:00:00Z"));
+    const res = await confirmPaid(prisma, b.id, p.id, at("2027-03-05T01:00:00Z"));
+    expect(res).toEqual({ result: "already_confirmed" });
+    const refunds = await prisma.refund.findMany({ where: { paymentId: p.id } });
+    expect(refunds.map((r) => [r.id, r.reason])).toEqual([[cancel.refundIds[0], "guest_cancel_full"]]);
+    expect((await prisma.booking.findUniqueOrThrow({ where: { id: b.id } })).status).toBe("cancelled");
+  });
+
   test("paid payment on an admin-cancelled hold → late_payment with refund", async () => {
     const room = await makeRoom(prisma);
     const b = await requestOn(room);
