@@ -350,6 +350,7 @@ describe("payment", () => {
     const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
     expect(byId[a.id].status).toBe("confirmed");
     expect(byId[a.id].confirmedAt).toEqual(now);
+    expect(byId[a.id].confirmedPaymentId).toBe(p.id);
     expect(byId[b.id].status).toBe("rejected");
     expect(byId[b.id].rejectedReason).toMatch(/auto/);
     expect(byId[c.id].status).toBe("requested");
@@ -362,8 +363,93 @@ describe("payment", () => {
     const approved = await approveRequest(prisma, b.id, now);
     const p = await paidCardPayment(b);
     const late = new Date(approved.holdExpiresAt!.getTime() + 1000);
-    expect(await confirmPaid(prisma, b.id, p.id, late)).toEqual({ result: "late_payment" });
+    const res = await confirmPaid(prisma, b.id, p.id, late);
+    expect(res).toEqual({ result: "late_payment", refundId: expect.any(String) });
     expect((await prisma.booking.findUniqueOrThrow({ where: { id: b.id } })).status).toBe("payment_expired");
+    const refund = await prisma.refund.findUniqueOrThrow({ where: { id: (res as { refundId: string }).refundId } });
+    expect(refund).toMatchObject({
+      paymentId: p.id,
+      reason: "late_payment_auto",
+      amountKrw: 1_300_000,
+      amountRefundedMinor: 1_300_000,
+      status: "pending",
+      manual: false,
+    });
+  });
+
+  test("late payment repeated: same refundId, exactly one refund row", async () => {
+    const room = await makeRoom(prisma);
+    const b = await requestOn(room);
+    await approveRequest(prisma, b.id, now);
+    const p = await paidCardPayment(b, { currency: "USD", amountChargedMinor: 98_765 });
+    const late = new Date(now.getTime() + 25 * HOUR);
+    await expireDue(prisma, late); // cron already ran this time
+    const first = await confirmPaid(prisma, b.id, p.id, late);
+    const second = await confirmPaid(prisma, b.id, p.id, new Date(late.getTime() + HOUR));
+    expect(first).toEqual({ result: "late_payment", refundId: expect.any(String) });
+    expect(second).toEqual(first);
+    const refunds = await prisma.refund.findMany({ where: { paymentId: p.id } });
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0]).toMatchObject({ amountKrw: 1_300_000, amountRefundedMinor: 98_765 });
+  });
+
+  test("confirmPaid twice with the same payment: second returns already_confirmed, booking unchanged", async () => {
+    const room = await makeRoom(prisma);
+    const b = await requestOn(room);
+    await approveRequest(prisma, b.id, now);
+    const p = await paidCardPayment(b);
+    expect(await confirmPaid(prisma, b.id, p.id, now)).toEqual({ result: "confirmed", autoRejectedIds: [] });
+    const before = await prisma.booking.findUniqueOrThrow({ where: { id: b.id } });
+    expect(before.confirmedPaymentId).toBe(p.id);
+    expect(await confirmPaid(prisma, b.id, p.id, new Date(now.getTime() + HOUR))).toEqual({
+      result: "already_confirmed",
+    });
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: b.id } })).toEqual(before);
+    expect(await prisma.refund.count()).toBe(0);
+  });
+
+  test("webhook and redirect confirming at once: one confirmed, one already_confirmed", async () => {
+    const room = await makeRoom(prisma);
+    const b = await requestOn(room);
+    await approveRequest(prisma, b.id, now);
+    const p = await paidCardPayment(b);
+    const results = await Promise.all([confirmPaid(prisma, b.id, p.id, now), confirmPaid(prisma, b.id, p.id, now)]);
+    expect(results.map((r) => r.result).sort()).toEqual(["already_confirmed", "confirmed"]);
+  });
+
+  test("a second, different paid payment on a confirmed booking → duplicate_payment with one refund", async () => {
+    const b = await confirmedBooking(await makeRoom(prisma));
+    const second = await paidCardPayment(b);
+    const r1 = await confirmPaid(prisma, b.id, second.id, now);
+    const r2 = await confirmPaid(prisma, b.id, second.id, now);
+    expect(r1).toEqual({ result: "duplicate_payment", refundId: expect.any(String) });
+    expect(r2).toEqual(r1);
+    const refunds = await prisma.refund.findMany({ where: { paymentId: second.id } });
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0]).toMatchObject({ reason: "duplicate_payment_auto", amountKrw: 1_300_000, status: "pending" });
+    const after = await prisma.booking.findUniqueOrThrow({ where: { id: b.id } });
+    expect(after.status).toBe("confirmed");
+    expect(after.confirmedPaymentId).not.toBe(second.id);
+  });
+
+  test("paid payment on an admin-cancelled hold → late_payment with refund", async () => {
+    const room = await makeRoom(prisma);
+    const b = await requestOn(room);
+    await approveRequest(prisma, b.id, now);
+    await cancelBooking(prisma, b.id, { kind: "admin" }, now);
+    const p = await paidCardPayment(b);
+    const res = await confirmPaid(prisma, b.id, p.id, now);
+    expect(res).toEqual({ result: "late_payment", refundId: expect.any(String) });
+    expect(await prisma.refund.count({ where: { paymentId: p.id, reason: "late_payment_auto" } })).toBe(1);
+    expect((await prisma.booking.findUniqueOrThrow({ where: { id: b.id } })).status).toBe("cancelled");
+  });
+
+  test("confirmPaid on a booking that was never approved fails with INVALID_STATE", async () => {
+    const room = await makeRoom(prisma);
+    const b = await requestOn(room);
+    const p = await paidCardPayment(b);
+    await expectBookingError(confirmPaid(prisma, b.id, p.id, now), "INVALID_STATE");
+    expect(await prisma.refund.count()).toBe(0);
   });
 
   test("confirmPaid rejects a payment that is unpaid, mismatched or for another booking", async () => {
@@ -409,7 +495,9 @@ describe("payment", () => {
       offlineNote: "bank_transfer: KB 123",
       paidAt: now,
     });
-    expect((await prisma.booking.findUniqueOrThrow({ where: { id: a.id } })).status).toBe("confirmed");
+    const confirmedA = await prisma.booking.findUniqueOrThrow({ where: { id: a.id } });
+    expect(confirmedA.status).toBe("confirmed");
+    expect(confirmedA.confirmedPaymentId).toBe(payments[0].id);
   });
 
   test("confirmOfflinePayment on a requested (unapproved) booking fails", async () => {

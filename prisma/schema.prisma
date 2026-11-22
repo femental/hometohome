@@ -66,6 +66,7 @@ enum RefundReason {
   guest_cancel_deposit_only
   admin_cancel
   late_payment_auto
+  duplicate_payment_auto
 }
 
 enum RefundStatus {
@@ -237,9 +238,13 @@ model Booking {
   depositReturnedAt DateTime? @map("deposit_returned_at") @db.Timestamptz(3)
   depositReturnNote String?   @map("deposit_return_note")
 
-  room     Room      @relation(fields: [roomId], references: [id])
-  guest    User      @relation(fields: [guestId], references: [id])
-  payments Payment[]
+  /// The payment that confirmed this booking (text, like Payment.id). Makes confirmation idempotent.
+  confirmedPaymentId String? @unique @map("confirmed_payment_id")
+
+  room             Room      @relation(fields: [roomId], references: [id])
+  guest            User      @relation(fields: [guestId], references: [id])
+  payments         Payment[] @relation("BookingPayments")
+  confirmedPayment Payment?  @relation("BookingConfirmedPayment", fields: [confirmedPaymentId], references: [id])
 
   @@index([roomId, status])
   @@index([guestId])
@@ -267,8 +272,9 @@ model Payment {
   paidAt             DateTime?     @map("paid_at") @db.Timestamptz(3)
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  booking Booking  @relation(fields: [bookingId], references: [id])
-  refunds Refund[]
+  booking      Booking  @relation("BookingPayments", fields: [bookingId], references: [id])
+  confirmedFor Booking? @relation("BookingConfirmedPayment")
+  refunds      Refund[]
 
   @@index([bookingId])
   @@map("payments")

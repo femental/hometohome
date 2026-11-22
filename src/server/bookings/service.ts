@@ -1,4 +1,4 @@
-import type { Booking, Prisma, RefundReason } from "@/generated/prisma/client";
+import type { Booking, Payment, Prisma, RefundReason } from "@/generated/prisma/client";
 import {
   effectiveStatus,
   HOLD_TTL_MS,
@@ -222,9 +222,13 @@ export async function expireDue(
 // ---------------------------------------------------------------------------
 // Payment
 
-/** awaiting_payment -> confirmed, then auto-rejects live overlapping requests on the room. */
-async function confirmLocked(tx: Tx, b: Booking, now: Date): Promise<string[]> {
-  await occupy(tx, b.id, { status: nextStatus(b.status, "pay"), confirmedAt: now });
+/** awaiting_payment -> confirmed by `paymentId`, then auto-rejects live overlapping requests on the room. */
+async function confirmLocked(tx: Tx, b: Booking, paymentId: string, now: Date): Promise<string[]> {
+  await occupy(tx, b.id, {
+    status: nextStatus(b.status, "pay"),
+    confirmedAt: now,
+    confirmedPayment: { connect: { id: paymentId } },
+  });
   const rejected = await tx.booking.updateManyAndReturn({
     where: {
       roomId: b.roomId,
@@ -239,17 +243,48 @@ async function confirmLocked(tx: Tx, b: Booking, now: Date): Promise<string[]> {
   return rejected.map((r) => r.id).sort();
 }
 
+/** The single full refund for a payment that cannot be kept; repeat calls reuse it. */
+async function ensureAutoRefund(
+  tx: Tx,
+  payment: Payment,
+  reason: "late_payment_auto" | "duplicate_payment_auto",
+): Promise<string> {
+  const existing = await tx.refund.findFirst({
+    where: { paymentId: payment.id, reason },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+  const created = await tx.refund.create({
+    data: {
+      paymentId: payment.id,
+      reason,
+      amountKrw: payment.amountKrw,
+      amountRefundedMinor: payment.amountChargedMinor,
+      status: "pending",
+      manual: payment.method === "offline",
+    },
+  });
+  return created.id;
+}
+
+export type ConfirmPaidResult =
+  | { result: "confirmed"; autoRejectedIds: string[] }
+  | { result: "already_confirmed" }
+  | { result: "late_payment"; refundId: string }
+  | { result: "duplicate_payment"; refundId: string };
+
 /**
- * Confirms a booking for a payment the server already verified with the PG.
- * A payment that lands after the hold expired yields `late_payment`; the caller refunds it.
+ * Confirms a booking for a payment the server already verified with the PG. Idempotent: the
+ * webhook and the client redirect may both call it, in any order or at once.
+ * - same payment again → `already_confirmed` (no writes)
+ * - another payment on a confirmed booking → `duplicate_payment`
+ * - payment after the hold expired, or on a cancelled hold → `late_payment`
+ * Late and duplicate payments get one pending full refund row (reused on repeat calls) for
+ * the caller to execute.
  */
-export function confirmPaid(
-  db: Db,
-  bookingId: string,
-  paymentId: string,
-  now: Date,
-): Promise<{ result: "confirmed"; autoRejectedIds: string[] } | { result: "late_payment" }> {
-  return withLockedBooking(db, bookingId, now, async (tx, b) => {
+export function confirmPaid(db: Db, bookingId: string, paymentId: string, now: Date): Promise<ConfirmPaidResult> {
+  return withLockedBooking<ConfirmPaidResult>(db, bookingId, now, async (tx, b) => {
     const payment = await tx.payment.findUnique({ where: { id: paymentId } });
     if (!payment || payment.bookingId !== b.id) return refuse("INVALID_STATE", "payment does not belong to booking");
     if (payment.status !== "paid") return refuse("INVALID_STATE", `payment is ${payment.status}`);
@@ -257,9 +292,19 @@ export function confirmPaid(
       return refuse("INVALID_STATE", `payment amount ${payment.amountKrw} != ${b.firstPaymentTotal}`);
     }
 
-    if (b.status === "payment_expired") return { result: "late_payment" as const };
-    if (b.status !== "awaiting_payment") return invalidState(b);
-    return { result: "confirmed" as const, autoRejectedIds: await confirmLocked(tx, b, now) };
+    switch (b.status) {
+      case "awaiting_payment": // live: withLockedBooking already persisted an expired hold
+        return { result: "confirmed", autoRejectedIds: await confirmLocked(tx, b, payment.id, now) };
+      case "confirmed":
+      case "completed":
+        if (b.confirmedPaymentId === payment.id) return { result: "already_confirmed" };
+        return { result: "duplicate_payment", refundId: await ensureAutoRefund(tx, payment, "duplicate_payment_auto") };
+      case "payment_expired":
+      case "cancelled":
+        return { result: "late_payment", refundId: await ensureAutoRefund(tx, payment, "late_payment_auto") };
+      default:
+        return invalidState(b);
+    }
   });
 }
 
@@ -275,7 +320,7 @@ export function confirmOfflinePayment(
     if (p.amountKrw !== b.firstPaymentTotal) {
       return refuse("INVALID_STATE", `payment amount ${p.amountKrw} != ${b.firstPaymentTotal}`);
     }
-    await tx.payment.create({
+    const payment = await tx.payment.create({
       data: {
         bookingId: b.id,
         method: "offline",
@@ -287,7 +332,7 @@ export function confirmOfflinePayment(
         paidAt: now,
       },
     });
-    return { result: "confirmed" as const, autoRejectedIds: await confirmLocked(tx, b, now) };
+    return { result: "confirmed" as const, autoRejectedIds: await confirmLocked(tx, b, payment.id, now) };
   });
 }
 
