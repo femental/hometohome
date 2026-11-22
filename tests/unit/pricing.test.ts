@@ -7,6 +7,7 @@ test.each([
   ["2027-03-15", "2027-04-25", 1, 10, 1_066_667, 1_566_667],
   ["2027-03-15", "2027-05-25", 2, 10, 1_866_667, 1_300_000],
   ["2027-01-31", "2027-02-28", 1, 0, 800_000, 1_300_000],
+  ["2028-01-31", "2028-02-29", 1, 0, 800_000, 1_300_000], // leap year
 ])("%s → %s", (moveIn, moveOut, months, days, total, first) => {
   const q = calculatePrice({ ...base, moveIn, moveOut });
   expect([q.fullMonths, q.extraDays, q.stayTotal, q.firstPaymentTotal]).toEqual([months, days, total, first]);
