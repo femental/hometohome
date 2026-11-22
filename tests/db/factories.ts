@@ -43,7 +43,11 @@ type RoomOverrides = Partial<
   Omit<Prisma.RoomUncheckedCreateInput, "availableFrom"> & { availableFrom: ISODate }
 >;
 
-export async function makeRoom(db: Db, overrides: RoomOverrides = {}) {
+export async function makeRoom(
+  db: Db,
+  overrides: RoomOverrides = {},
+  houseOverrides: Partial<Prisma.HouseUncheckedCreateInput> = {},
+) {
   const { availableFrom, houseId, ...rest } = overrides;
   let resolvedHouseId = houseId;
   if (!resolvedHouseId) {
@@ -60,6 +64,7 @@ export async function makeRoom(db: Db, overrides: RoomOverrides = {}) {
         district: "mapo",
         lat: 37.55,
         lng: 126.92,
+        ...houseOverrides,
       },
     });
     resolvedHouseId = house.id;
