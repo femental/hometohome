@@ -6,16 +6,20 @@ const isoDate = z
   .string()
   .refine((s) => isValidISODate(s), "올바른 날짜(YYYY-MM-DD)를 입력해 주세요.");
 
-const i18n = z.object({
-  en: z.string().trim().min(1, "영문 값을 입력해 주세요."),
-  ko: z.string().trim().optional(),
-});
+const i18n = (max: number) =>
+  z.object({
+    en: z.string().trim().min(1, "영문 값을 입력해 주세요.").max(max, `${max.toLocaleString("ko-KR")}자 이하로 입력해 주세요.`),
+    ko: z.string().trim().max(max, `${max.toLocaleString("ko-KR")}자 이하로 입력해 주세요.`).optional(),
+  });
+const NAME_MAX = 100;
+const TEXT_MAX = 5000;
 
 const intAmount = (min: number, label: string) =>
   z
     .number({ error: `${label}을(를) 숫자로 입력해 주세요.` })
     .int(`${label}은(는) 정수여야 합니다.`)
-    .min(min, `${label}은(는) ${min.toLocaleString("ko-KR")} 이상이어야 합니다.`);
+    .min(min, `${label}은(는) ${min.toLocaleString("ko-KR")} 이상이어야 합니다.`)
+    .max(100_000_000, "1억 원 이하로 입력해 주세요.");
 
 const station = z.object({
   name_en: z.string().trim().min(1, "역 이름(영문)을 입력해 주세요."),
@@ -25,9 +29,9 @@ const station = z.object({
 });
 
 export const houseInput = z.object({
-  name: i18n,
-  description: i18n,
-  houseRules: i18n,
+  name: i18n(NAME_MAX),
+  description: i18n(TEXT_MAX),
+  houseRules: i18n(TEXT_MAX),
   addressKo: z.string().trim().min(1, "한글 주소를 입력해 주세요."),
   addressEn: z.string().trim().optional(),
   district: z.enum(DISTRICTS.map((d) => d.code) as [string, ...string[]], {
@@ -48,8 +52,8 @@ export type HouseInput = z.infer<typeof houseInput>;
 
 export const roomInput = z
   .object({
-    name: i18n,
-    description: i18n,
+    name: i18n(NAME_MAX),
+    description: i18n(TEXT_MAX),
     monthlyRent: intAmount(1, "월세"),
     deposit: intAmount(0, "보증금"),
     availableFrom: isoDate,

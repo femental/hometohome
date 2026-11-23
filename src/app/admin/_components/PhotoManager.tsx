@@ -8,7 +8,7 @@ import { ConfirmButton } from "./ConfirmButton";
 export type PhotoItem = { id: string; url: string };
 
 const ACCEPT = "image/jpeg,image/png,image/webp";
-const MAX_BYTES = 10 * 1024 * 1024; // mirrors PHOTO_MAX_BYTES; the server checks again
+const MAX_BYTES = 4 * 1024 * 1024; // mirrors PHOTO_MAX_BYTES; the server checks again
 const MAX_PHOTOS = 20;
 
 /** Photo list (first one is the cover) with upload, up/down reordering and delete. */
@@ -41,7 +41,7 @@ export function PhotoManager({
       for (const [i, file] of files.entries()) {
         setProgress(`${i + 1} / ${files.length} 업로드 중…`);
         if (file.size > MAX_BYTES) {
-          failed.push(`${file.name}: 사진은 한 장에 10MB 이하만 올릴 수 있습니다.`);
+          failed.push(`${file.name}: 사진은 한 장에 4MB 이하만 올릴 수 있습니다.`);
           continue;
         }
         const fd = new FormData();
@@ -133,7 +133,7 @@ export function PhotoManager({
       ) : (
         <p className="text-sm text-zinc-500">사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있습니다.</p>
       )}
-      <p className="text-xs text-zinc-500">JPG, PNG, WEBP · 한 장에 10MB 이하 · 최대 {MAX_PHOTOS}장</p>
+      <p className="text-xs text-zinc-500">JPG, PNG, WEBP · 한 장에 4MB 이하 · 최대 {MAX_PHOTOS}장</p>
       {progress && (
         <p role="status" className="text-sm text-zinc-700">
           {progress}

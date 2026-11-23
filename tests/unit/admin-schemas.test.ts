@@ -136,3 +136,18 @@ describe("districts", () => {
     expect(districtCodeFromSigungu("")).toBeNull();
   });
 });
+
+describe("amount and text bounds", () => {
+  test("amounts above 100,000,000 are rejected, the bound itself is accepted", () => {
+    const over = roomInput.safeParse({ ...room, monthlyRent: 100_000_001 });
+    expect(over.success).toBe(false);
+    if (!over.success) expect(over.error.issues[0].message).toBe("1억 원 이하로 입력해 주세요.");
+    expect(roomInput.safeParse({ ...room, deposit: 100_000_000 }).success).toBe(true);
+  });
+
+  test("name and description lengths are capped", () => {
+    expect(houseInput.safeParse({ ...house, name: { en: "a".repeat(101) } }).success).toBe(false);
+    expect(houseInput.safeParse({ ...house, description: { en: "a".repeat(5001) } }).success).toBe(false);
+    expect(houseInput.safeParse({ ...house, houseRules: { en: "a".repeat(5000) } }).success).toBe(true);
+  });
+});

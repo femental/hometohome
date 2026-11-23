@@ -29,6 +29,9 @@ export type ServerEnv = z.output<typeof schema>;
 /** Pure validator (testable): throws an Error naming every invalid key. */
 export function parseServerEnv(raw: Record<string, string | undefined>): ServerEnv {
   const result = schema.safeParse(raw);
+  if (result.success && raw.NODE_ENV === "production" && !result.data.RESEND_API_KEY) {
+    throw new Error("Invalid environment variables: RESEND_API_KEY: required in production");
+  }
   if (!result.success) {
     const detail = result.error.issues
       .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)

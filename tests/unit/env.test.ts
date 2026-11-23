@@ -26,3 +26,10 @@ test("PHOTO_BUCKET defaults to photos and optional keys may be absent", () => {
   expect(env.RESEND_API_KEY).toBeUndefined();
   expect(env.KAKAO_REST_API_KEY).toBeUndefined();
 });
+
+test("RESEND_API_KEY is required in production, optional in development", () => {
+  expect(() => parseServerEnv({ ...validEnv, NODE_ENV: "production" })).toThrow(/RESEND_API_KEY/);
+  expect(() => parseServerEnv({ ...validEnv, NODE_ENV: "production", RESEND_API_KEY: "" })).toThrow(/RESEND_API_KEY/);
+  expect(parseServerEnv({ ...validEnv, NODE_ENV: "production", RESEND_API_KEY: "re_x" }).RESEND_API_KEY).toBe("re_x");
+  expect(() => parseServerEnv({ ...validEnv, NODE_ENV: "development" })).not.toThrow();
+});

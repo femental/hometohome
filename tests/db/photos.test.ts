@@ -69,7 +69,7 @@ describe("addPhoto", () => {
     expect(await prisma.housePhoto.count()).toBe(1);
   });
 
-  test("rejects gif, mismatched magic bytes and >10MB before touching storage", async () => {
+  test("rejects gif, mismatched magic bytes and >4MiB before touching storage", async () => {
     const { owner, storage } = await setup();
     const gif = {
       bytes: new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]),
@@ -84,6 +84,15 @@ describe("addPhoto", () => {
     expect(await codeOf(addPhoto(prisma, storage, owner, big))).toBe("TOO_LARGE");
     expect(storage.files.size).toBe(0);
     expect(await prisma.roomPhoto.count()).toBe(0);
+  });
+
+  test("accepts a photo of exactly 4 MiB", async () => {
+    const { owner, storage } = await setup();
+    const exact = { bytes: new Uint8Array(PHOTO_MAX_BYTES), contentType: "image/jpeg" };
+    exact.bytes.set([0xff, 0xd8, 0xff]);
+    const p = await addPhoto(prisma, storage, owner, exact);
+    expect(p.storagePath).toBeTruthy();
+    expect(storage.files.size).toBe(1);
   });
 
   test("21st photo → LIMIT", async () => {

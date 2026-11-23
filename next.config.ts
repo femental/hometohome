@@ -7,8 +7,8 @@ const nextConfig: NextConfig = {
   experimental: {
     // Enables forbidden() / forbidden.tsx (used by requireAdmin for signed-in non-admins).
     authInterrupts: true,
-    // Photo uploads (max 10 MiB + multipart overhead) go through Server Actions.
-    serverActions: { bodySizeLimit: "12mb" },
+    // Photo uploads (max 4 MiB + multipart overhead) go through Server Actions; Vercel caps bodies at ~4.5 MB.
+    serverActions: { bodySizeLimit: "5mb" },
   },
   turbopack: {
     rules: {

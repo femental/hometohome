@@ -1,9 +1,10 @@
+import "server-only";
 import { randomUUID } from "node:crypto";
 import type { HousePhoto, RoomPhoto } from "@/generated/prisma/client";
 import type { Db } from "@/server/db";
 import type { PhotoStorage } from "./storage";
 
-export const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+export const PHOTO_MAX_BYTES = 4 * 1024 * 1024;
 export const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export const PHOTOS_PER_OWNER = 20;
 

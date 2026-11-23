@@ -46,6 +46,9 @@ vi.mock("@/server/photos/service", async (importOriginal) => {
   return { ...real, addPhoto: vi.fn(), removePhoto: vi.fn(), reorderPhotos: vi.fn() };
 });
 
+const kakao = vi.hoisted(() => ({ geocodeAddress: vi.fn() }));
+vi.mock("@/server/geo/kakao", () => kakao);
+
 vi.mock("@/server/auth/supabase", () => ({ createSupabaseAdminClient: vi.fn() }));
 vi.mock("@/server/env", () => ({ serverEnv: vi.fn(() => ({ PHOTO_BUCKET: "photos" })) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -59,6 +62,7 @@ import { requireAdmin } from "@/server/auth/session";
 import * as photoService from "@/server/photos/service";
 import * as catalogActions from "@/app/admin/actions/catalog";
 import * as photoActions from "@/app/admin/actions/photos";
+import * as geocodeActions from "@/app/admin/actions/geocode";
 
 const ID = "6f1c1c7e-2f7a-4c55-9b44-2f1f0f4b8a11";
 
@@ -73,7 +77,7 @@ function formData() {
 // Plausible arguments for any of the signatures (bound ids, prevState, FormData, plain args).
 const ARGS = [ID, ID, formData(), "published", [ID]];
 
-const all = { ...catalogActions, ...photoActions } as Record<string, (...a: unknown[]) => Promise<unknown>>;
+const all = { ...catalogActions, ...photoActions, ...geocodeActions } as Record<string, (...a: unknown[]) => Promise<unknown>>;
 
 const serviceMocks = [
   ...Object.values(catalog).filter((v) => vi.isMockFunction(v)),
@@ -81,28 +85,30 @@ const serviceMocks = [
   createSupabaseAdminClient,
   revalidatePath,
   redirect,
+  kakao.geocodeAddress,
 ];
 
 beforeEach(() => vi.clearAllMocks());
 
 test("action files export the planned actions", () => {
-  expect(Object.keys(catalogActions).sort()).toEqual(
-    expect.arrayContaining([
-      "createBlockAction",
-      "createHouseAction",
-      "createRoomAction",
-      "deleteBlockAction",
-      "deleteHouseAction",
-      "deleteRoomAction",
-      "setHouseStatusAction",
-      "setRoomStatusAction",
-      "updateHouseAction",
-      "updateRoomAction",
-    ]),
-  );
-  expect(Object.keys(photoActions)).toEqual(
-    expect.arrayContaining(["uploadPhotoAction", "removePhotoAction", "reorderPhotosAction"]),
-  );
+  expect(Object.keys(catalogActions).sort()).toEqual([
+    "createBlockAction",
+    "createHouseAction",
+    "createRoomAction",
+    "deleteBlockAction",
+    "deleteHouseAction",
+    "deleteRoomAction",
+    "setHouseStatusAction",
+    "setRoomStatusAction",
+    "updateHouseAction",
+    "updateRoomAction",
+  ]);
+  expect(Object.keys(photoActions).sort()).toEqual([
+    "removePhotoAction",
+    "reorderPhotosAction",
+    "uploadPhotoAction",
+  ]);
+  expect(Object.keys(geocodeActions).sort()).toEqual(["geocodeAction"]);
   for (const [name, fn] of Object.entries(all)) expect(typeof fn, name).toBe("function");
 });
 
