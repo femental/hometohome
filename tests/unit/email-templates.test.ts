@@ -28,6 +28,7 @@ const ALL: TemplateName[] = [
   "payment_expired",
   "booking_confirmed",
   "booking_cancelled",
+  "late_payment_refund",
   "admin_new_request",
   "admin_payment_received",
   "admin_booking_cancelled",
@@ -85,4 +86,28 @@ test("urls in href are attribute-escaped", () => {
 
 test("throws when a required field is missing", () => {
   expect(() => renderEmail("request_approved", "en", base)).toThrow(/payUrl/);
+});
+
+test("request_approved states the 24-hour window in en and ko", () => {
+  for (const locale of ["en", "ko"] as const) {
+    expect(renderEmail("request_approved", locale, full).text).toContain("24");
+  }
+});
+
+test("late_payment_refund shows the refund and requires refundKrw", () => {
+  for (const locale of ["en", "ko"] as const) {
+    expect(renderEmail("late_payment_refund", locale, full).text).toContain("₩1,300,000");
+  }
+  expect(() => renderEmail("late_payment_refund", "en", base)).toThrow(/refundKrw/);
+});
+
+test("booking_cancelled uses neutral refund wording", () => {
+  const withRefund = renderEmail("booking_cancelled", "en", { ...base, refundKrw: 500_000 });
+  expect(withRefund.text).toContain("₩500,000");
+  expect(withRefund.text).not.toContain("original payment method");
+  for (const refundKrw of [undefined, 0]) {
+    const m = renderEmail("booking_cancelled", "en", { ...base, refundKrw });
+    expect(m.text).toContain("No refund applies");
+    expect(m.text).not.toContain("₩");
+  }
 });

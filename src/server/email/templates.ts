@@ -15,6 +15,7 @@ export type TemplateName =
   | "admin_new_request"
   | "admin_payment_received"
   | "admin_booking_cancelled"
+  | "late_payment_refund"
   | "admin_late_payment_refund";
 
 export interface TemplateData {
@@ -52,6 +53,7 @@ interface View {
   bookingUrl: string;
   reason: string;
   refund: string;
+  hasRefund: boolean;
 }
 
 type Field = Exclude<keyof TemplateData, "guestName" | "houseName" | "roomName" | "moveIn" | "lastNight">;
@@ -92,7 +94,7 @@ const TEMPLATES: Record<TemplateName, Template> = {
       lines: [
         `Hi ${v.guest},`,
         `Good news! Your request for ${v.place} (${v.stay}) was approved.`,
-        `To confirm the booking, please pay ${v.total} by ${v.deadline}. The room is held for you until then; after that the hold is released.`,
+        `Please pay within 24 hours, by ${v.deadline}, to confirm the booking. Amount due: ${v.total}. The room is held for you until then; after that the hold is released.`,
         link("Pay now", v.payUrl),
       ],
     }),
@@ -101,7 +103,7 @@ const TEMPLATES: Record<TemplateName, Template> = {
       lines: [
         `${v.guest}님, 안녕하세요.`,
         `${v.place} (${v.stay}) 예약 신청이 승인되었습니다.`,
-        `예약을 확정하려면 ${v.deadline}까지 ${v.total}을(를) 결제해 주세요. 그때까지 방이 확보되며, 이후에는 자동으로 해제됩니다.`,
+        `예약을 확정하려면 승인 후 24시간 이내(${v.deadline}까지) 결제해 주세요. 결제 금액: ${v.total}. 그때까지 방이 확보되며, 이후에는 자동으로 해제됩니다.`,
         link("결제하기", v.payUrl),
       ],
     }),
@@ -196,7 +198,7 @@ const TEMPLATES: Record<TemplateName, Template> = {
         `Hi ${v.guest},`,
         `Your booking for ${v.place} (${v.stay}) has been cancelled.`,
         ...(v.reason ? [`Reason: ${v.reason}`] : []),
-        ...(v.refund ? [`Refund amount: ${v.refund}. It will be returned to your original payment method.`] : []),
+        ...(v.hasRefund ? [`A refund of ${v.refund} will be processed.`] : ["No refund applies to this booking."]),
       ],
     }),
     ko: (v) => ({
@@ -205,7 +207,28 @@ const TEMPLATES: Record<TemplateName, Template> = {
         `${v.guest}님, 안녕하세요.`,
         `${v.place} (${v.stay}) 예약이 취소되었습니다.`,
         ...(v.reason ? [`사유: ${v.reason}`] : []),
-        ...(v.refund ? [`환불 금액: ${v.refund}. 결제하신 수단으로 환불됩니다.`] : []),
+        ...(v.hasRefund ? [`${v.refund} 환불이 진행됩니다.`] : ["환불 대상 금액이 없습니다."]),
+      ],
+    }),
+  },
+  late_payment_refund: {
+    need: ["refundKrw"],
+    en: (v) => ({
+      subject: `Your payment arrived after the hold expired – refund in progress`,
+      lines: [
+        `Hi ${v.guest},`,
+        `We received your payment for ${v.place} (${v.stay}) after the 24-hour payment window had expired, so the booking was not confirmed.`,
+        `A full refund of ${v.refund} is being processed.`,
+        "You are welcome to submit a new request if you would still like to book.",
+      ],
+    }),
+    ko: (v) => ({
+      subject: `결제가 기한 후 도착했습니다 – 환불이 진행됩니다`,
+      lines: [
+        `${v.guest}님, 안녕하세요.`,
+        `${v.place} (${v.stay}) 결제가 24시간 결제 기한이 지난 뒤 도착하여 예약이 확정되지 않았습니다.`,
+        `결제하신 ${v.refund} 전액 환불이 진행됩니다.`,
+        "계속 원하시면 새로 신청해 주세요.",
       ],
     }),
   },
@@ -272,6 +295,7 @@ function buildView(locale: Locale, d: TemplateData): View {
     bookingUrl: d.bookingUrl ?? "",
     reason: d.reason ?? "",
     refund: d.refundKrw === undefined ? "" : formatKRW(d.refundKrw),
+    hasRefund: (d.refundKrw ?? 0) > 0,
   };
 }
 
