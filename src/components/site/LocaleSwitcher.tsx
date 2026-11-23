@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useTransition } from "react";
+import { updateLocaleAction } from "@/app/[locale]/account/actions";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { routing, type Locale } from "@/i18n/routing";
 
@@ -9,10 +10,10 @@ const LABELS: Record<Locale, string> = { en: "EN", ko: "한국어" };
 
 /**
  * Switches to the same page (path and query kept) in the other locale. next-intl's proxy stores the
- * choice in the `NEXT_LOCALE` cookie, so `/` lands on it next time.
- * TODO(Task 2): when signed in, also call `updateLocaleAction(locale)` to save users.locale.
+ * choice in the `NEXT_LOCALE` cookie, so `/` lands on it next time. When signed in, the choice is
+ * also saved to users.locale (the language of their emails) before switching.
  */
-export function LocaleSwitcher({ className = "" }: { className?: string }) {
+export function LocaleSwitcher({ className = "", signedIn = false }: { className?: string; signedIn?: boolean }) {
   const t = useTranslations("nav");
   const current = useLocale();
   const pathname = usePathname();
@@ -20,7 +21,11 @@ export function LocaleSwitcher({ className = "" }: { className?: string }) {
   const [pending, startTransition] = useTransition();
 
   function switchTo(locale: Locale) {
-    startTransition(() => {
+    startTransition(async () => {
+      if (signedIn) {
+        // Best effort: the switch itself must still work if saving fails (e.g. the session expired).
+        await updateLocaleAction(locale).catch(() => {});
+      }
       router.replace(`${pathname}${window.location.search}`, { locale, scroll: false });
     });
   }

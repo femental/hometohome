@@ -5,7 +5,7 @@ import { routing } from "./i18n/routing";
 
 const handleI18nRouting = createIntlMiddleware(routing);
 
-/** Paths that are not guest pages: the Korean admin, the operator login, auth routes, APIs, files. */
+/** Paths that are not guest pages: the Korean admin, the legacy /login redirect, auth routes, APIs, files. */
 const NON_LOCALIZED = /^\/(?:admin|login|auth|api)(?:\/|$)/;
 
 function isLocalized(pathname: string): boolean {
@@ -49,7 +49,7 @@ async function refreshSession(request: NextRequest) {
  * 2. Guest paths go through next-intl (locale prefix redirect / locale header); its response is built
  *    from the already-refreshed request. Other paths get a plain pass-through.
  * 3. The refreshed Supabase cookies and cache headers are applied to that same response.
- * Anonymous visitors of /admin are optimistically sent to /login — `requireAdmin()` is the real check.
+ * Anonymous visitors of /admin are optimistically sent to /ko/login — `requireAdmin()` is the real check.
  * (No `server-only`/`serverEnv` here: Proxy runs outside the React server graph; only public
  * values are read.)
  */
@@ -62,7 +62,7 @@ export async function proxy(request: NextRequest) {
     response = handleI18nRouting(request);
   } else if (!session.user && (pathname === "/admin" || pathname.startsWith("/admin/"))) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = "/ko/login";
     url.search = `?next=${encodeURIComponent(pathname + search)}`;
     response = NextResponse.redirect(url);
   } else {

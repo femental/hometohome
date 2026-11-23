@@ -165,7 +165,9 @@ site_url = "http://localhost:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://localhost:3000/auth/callback**"]
+# OAuth returns to /auth/callback; magic links carry the page to return to (`emailRedirectTo` =
+# absolute `next`), which the email template passes to /auth/confirm.
+additional_redirect_urls = ["http://localhost:3000/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -251,6 +253,12 @@ otp_expiry = 3600
 # pass = "env(SENDGRID_API_KEY)"
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
+
+# Magic link → /auth/confirm?token_hash=… (verified server side, no PKCE code verifier needed, so it
+# works when the mail is opened in a different browser than the one that requested it).
+[auth.email.template.magic_link]
+subject = "Your hometohome sign-in link / 로그인 링크"
+content_path = "./supabase/templates/magic_link.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

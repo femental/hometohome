@@ -38,7 +38,16 @@ export function __setAuthResolverForTests(fn: (() => Promise<AuthUser | null>) |
   resolveAuthUser = fn ?? resolveFromSupabase;
 }
 
-/** Current signed-in user (synced to `users`), or null. Deduped per request. */
+/** The verified Supabase user (no DB access), or null. Request time only. */
+export function getAuthUser(): Promise<AuthUser | null> {
+  return resolveAuthUser();
+}
+
+/**
+ * Current signed-in user, synced to `users` (role recomputed from ADMIN_EMAILS — a DB write) on every
+ * call. Only for the admin boundary; guest pages use the read-only `getGuestUser()` (./guest.ts).
+ * Deduped per request.
+ */
 export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const authUser = await resolveAuthUser();
   if (!authUser) return null;
@@ -61,24 +70,19 @@ export function safeNext(next: string | null | undefined): string {
   return next;
 }
 
-function loginPath(next?: string): string {
-  return next ? `/login?next=${encodeURIComponent(safeNext(next))}` : "/login";
-}
-
-/** Signed-in user or redirect to /login (optionally returning to `next`). */
-export async function requireUser(next?: string): Promise<SessionUser> {
-  const user = await getSessionUser();
-  if (!user) redirect(loginPath(next));
-  return user;
+/** The localized login page (`/{locale}/login`), returning to a safe `next` if given. */
+export function loginPath(locale: string, next?: string): string {
+  const base = `/${locale}/login`;
+  return next ? `${base}?next=${encodeURIComponent(safeNext(next))}` : base;
 }
 
 /**
  * Security boundary for every admin page, Server Action and Route Handler.
- * Anonymous → redirect to /login; signed-in non-admin → forbidden() (403).
+ * Anonymous → redirect to /ko/login (the admin is Korean); signed-in non-admin → forbidden() (403).
  */
 export async function requireAdmin(next?: string): Promise<SessionUser> {
   const user = await getSessionUser();
-  if (!user) redirect(loginPath(next));
+  if (!user) redirect(loginPath("ko", next));
   if (user.role !== "admin") forbidden();
   return user;
 }

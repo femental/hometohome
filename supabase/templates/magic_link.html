@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #18181b; line-height: 1.5">
+    <h2 style="margin: 0 0 12px">hometohome</h2>
+    <p>Tap the button below to sign in. The link works once and expires in 1 hour.</p>
+    <p>아래 버튼을 눌러 로그인하세요. 링크는 한 번만 쓸 수 있고 1시간 뒤 만료됩니다.</p>
+    <p style="margin: 24px 0">
+      <a
+        href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next={{ .RedirectTo }}"
+        style="display: inline-block; background: #18181b; color: #ffffff; padding: 12px 20px; border-radius: 6px; text-decoration: none"
+        >Sign in / 로그인</a
+      >
+    </p>
+    <p style="font-size: 13px; color: #71717a">
+      If you did not ask for this, you can ignore this email. / 요청하지 않으셨다면 이 메일을 무시하세요.
+    </p>
+  </body>
+</html>

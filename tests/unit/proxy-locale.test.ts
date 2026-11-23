@@ -1,5 +1,22 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+
+// With Supabase env set, getUser() "refreshes" the session: setAll hands back a cookie + cache header.
+vi.mock("@supabase/ssr", () => ({
+  createServerClient: (
+    _url: string,
+    _key: string,
+    opts: { cookies: { setAll: (c: { name: string; value: string; options: object }[], h: Record<string, string>) => void } },
+  ) => ({
+    auth: {
+      getUser: async () => {
+        opts.cookies.setAll([{ name: "sb-x", value: "v", options: {} }], { "cache-control": "private" });
+        return { data: { user: null }, error: null };
+      },
+    },
+  }),
+}));
+
 import { proxy } from "@/proxy";
 
 // No Supabase env: the proxy skips the session refresh and treats the visitor as anonymous.
@@ -54,9 +71,20 @@ test("localized paths pass through", async () => {
   }
 });
 
-test("/admin is not localized (anonymous → /login)", async () => {
-  const res = await proxy(request("/admin/rooms", { "accept-language": "ko" }));
-  expect(location(res)).toBe("/login?next=%2Fadmin%2Frooms");
+test("/admin is not localized (anonymous → /ko/login)", async () => {
+  const res = await proxy(request("/admin/rooms", { "accept-language": "en" }));
+  expect(location(res)).toBe("/ko/login?next=%2Fadmin%2Frooms");
+});
+
+test("refreshed Supabase cookies and cache headers land on redirects and pass-throughs", async () => {
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:54321");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon");
+  for (const path of ["/", "/en"]) {
+    const res = await proxy(request(path, { "accept-language": "en" }));
+    expect(res.headers.get("location") !== null, path).toBe(path === "/");
+    expect(res.cookies.get("sb-x")?.value, path).toBe("v");
+    expect(res.headers.get("cache-control"), path).toBe("private");
+  }
 });
 
 test("/auth, /login, /api and files are left alone", async () => {
