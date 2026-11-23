@@ -14,6 +14,9 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["tests/unit/**/*.test.ts", "tests/smoke.test.ts"],
+          // next-intl's ESM imports `next/server` without an extension; Node's resolver rejects that
+          // unless Vite processes the package.
+          server: { deps: { inline: ["next-intl"] } },
         },
       },
       {
