@@ -1,7 +1,4 @@
-import { expect, test, vi } from "vitest";
-
-vi.mock("server-only", () => ({}));
-
+import { expect, test } from "vitest";
 import { parseServerEnv } from "@/server/env";
 
 const validEnv = {

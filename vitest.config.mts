@@ -1,6 +1,10 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
-const shared = { resolve: { tsconfigPaths: true } };
+const shared = {
+  // `server-only` throws outside the react-server condition; tests import server modules directly.
+  resolve: { tsconfigPaths: true, alias: { "server-only": fileURLToPath(new URL("node_modules/server-only/empty.js", import.meta.url)) } },
+};
 
 export default defineConfig({
   test: {

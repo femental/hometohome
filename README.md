@@ -15,6 +15,12 @@ Room-booking MVP for foreigners in Seoul (Next.js 16, Prisma 7, Supabase auth).
 
 종료: `npm run sb:stop`
 
+### 로그인 (로컬)
+
+- `/login`에서 이메일 매직링크를 요청하면 메일은 실제로 발송되지 않는다. 로컬 매직링크는 Supabase Studio의 Mailpit(`http://127.0.0.1:54324`)에서 확인한다.
+- `ADMIN_EMAILS`에 있는 이메일로 로그인하면 운영자(`admin`), 그 외는 게스트. 목록에서 빼면 다음 로그인 때 게스트로 강등된다.
+- Google 로그인은 `supabase/config.toml`에 `[auth.external.google]` 블록(`enabled = true`, `client_id`, `secret = "env(...)"`)을 추가해야 동작한다(로컬 기본값은 비활성).
+
 ## 테스트
 
 ```bash
