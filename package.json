@@ -11,16 +11,23 @@
         "test": "vitest run --project unit",
         "test:db": "vitest run --project db",
         "db:up": "docker compose up -d db",
+        "sb:start": "supabase start",
+        "sb:stop": "supabase stop",
         "db:generate": "prisma generate",
         "postinstall": "prisma generate"
     },
     "dependencies": {
         "@prisma/adapter-pg": "7.10.1",
         "@prisma/client": "7.10.1",
+        "@supabase/ssr": "^0.12.7",
+        "@supabase/supabase-js": "^2.119.2",
         "next": "16.4.6",
         "pg": "8.23.1",
         "react": "19.3.0",
-        "react-dom": "19.3.0"
+        "react-dom": "19.3.0",
+        "resend": "^6.39.0",
+        "server-only": "^0.0.1",
+        "zod": "^4.6.7"
     },
     "devDependencies": {
         "@tailwindcss/turbopack": "4.3.3",
@@ -31,6 +38,7 @@
         "eslint": "^9",
         "eslint-config-next": "16.4.6",
         "prisma": "7.10.1",
+        "supabase": "^3.2.0",
         "tailwindcss": "4.3.3",
         "typescript": "^5",
         "vitest": "^5.1.1"
