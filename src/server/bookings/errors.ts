@@ -1,15 +1,18 @@
-export type BookingErrorCode =
-  | "ROOM_NOT_FOUND"
-  | "ROOM_NOT_PUBLISHED"
-  | "TOO_SOON"
-  | "BEFORE_AVAILABLE"
-  | "GENDER_MISMATCH"
-  | "TOO_MANY_OCCUPANTS"
-  | "ROOM_UNAVAILABLE"
-  | "PRICING"
-  | "INVALID_STATE"
-  | "FORBIDDEN"
-  | "CANCEL_NOT_ALLOWED";
+export const BOOKING_ERROR_CODES = [
+  "ROOM_NOT_FOUND",
+  "ROOM_NOT_PUBLISHED",
+  "TOO_SOON",
+  "BEFORE_AVAILABLE",
+  "GENDER_MISMATCH",
+  "TOO_MANY_OCCUPANTS",
+  "ROOM_UNAVAILABLE",
+  "PRICING",
+  "INVALID_STATE",
+  "FORBIDDEN",
+  "CANCEL_NOT_ALLOWED",
+] as const;
+
+export type BookingErrorCode = (typeof BOOKING_ERROR_CODES)[number];
 
 export class BookingError extends Error {
   constructor(

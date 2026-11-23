@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { formatDate, formatKRW, formatKST } from "@/lib/format";
+import { formatDate, formatKRW, formatKST, formatMinor, formatRemainingKo } from "@/lib/format";
 import { statusBadge } from "@/components/ui/Badge";
 import type { BookingStatus } from "@/domain/booking-status";
 
@@ -37,4 +37,21 @@ test("every BookingStatus has a Korean label and class", () => {
     expect(b.label).toBe(label);
     expect(b.className).not.toBe("");
   }
+});
+
+test("formatMinor: KRW in won, USD minor units as dollars", () => {
+  expect(formatMinor("KRW", 1300000)).toBe("₩1,300,000");
+  expect(formatMinor("USD", 12345)).toBe("$123.45");
+  expect(formatMinor("USD", 123456705)).toBe("$1,234,567.05");
+  expect(formatMinor("USD", 5)).toBe("$0.05");
+});
+
+test("formatRemainingKo: hours, then minutes, then expired", () => {
+  const now = new Date("2027-03-01T00:00:00Z");
+  const at = (ms: number) => new Date(now.getTime() + ms);
+  expect(formatRemainingKo(at(23 * 3_600_000 + 59 * 60_000), now)).toBe("23시간 남음");
+  expect(formatRemainingKo(at(3_600_000), now)).toBe("1시간 남음");
+  expect(formatRemainingKo(at(59 * 60_000 + 30_000), now)).toBe("59분 남음");
+  expect(formatRemainingKo(at(30_000), now)).toBe("1분 미만 남음");
+  expect(formatRemainingKo(at(0), now)).toBe("기한 지남");
 });

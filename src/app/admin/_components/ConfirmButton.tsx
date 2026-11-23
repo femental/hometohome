@@ -4,19 +4,24 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import type { ActionResult } from "../actions/messages";
 
-/** Two-step destructive button: the first click asks, the second runs `onConfirm`. */
+/**
+ * Two-step button: the first click asks, the second runs `onConfirm`. Destructive by default;
+ * `tone="neutral"` is for consequential but non-destructive steps (approve, mark completed).
+ */
 export function ConfirmButton({
   label,
   question,
   confirmLabel = "삭제",
   onConfirm,
   size = "md",
+  tone = "danger",
 }: {
   label: string;
   question: string;
   confirmLabel?: string;
   onConfirm: () => Promise<ActionResult>;
   size?: "sm" | "md";
+  tone?: "danger" | "neutral";
 }) {
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +42,7 @@ export function ConfirmButton({
       {asking ? (
         <div role="group" aria-label={question} className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-zinc-700">{question}</span>
-          <Button variant="danger" className={pad} pending={pending} onClick={confirm}>
+          <Button variant={tone === "danger" ? "danger" : "primary"} className={pad} pending={pending} onClick={confirm}>
             {confirmLabel}
           </Button>
           <Button variant="secondary" className={pad} disabled={pending} onClick={() => setAsking(false)}>
@@ -45,7 +50,11 @@ export function ConfirmButton({
           </Button>
         </div>
       ) : (
-        <Button variant="secondary" className={`self-start text-red-700 ${pad}`} onClick={() => setAsking(true)}>
+        <Button
+          variant="secondary"
+          className={`self-start ${tone === "danger" ? "text-red-700" : ""} ${pad}`}
+          onClick={() => setAsking(true)}
+        >
           {label}
         </Button>
       )}
