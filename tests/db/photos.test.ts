@@ -99,13 +99,29 @@ describe("addPhoto", () => {
     expect(storage.files.size).toBe(0);
   });
 
-  test("DB failure removes the uploaded file", async () => {
+  test("malformed or nonexistent owner → NOT_FOUND, nothing uploaded", async () => {
     const { storage } = await setup();
-    const owner = { kind: "room" as const, id: MISSING_ID };
-    // Unknown owner makes the real insert fail on the foreign key after the upload.
-    await expect(addPhoto(prisma, storage, owner, jpeg())).rejects.toThrow();
+    for (const id of ["../x", "a/b", MISSING_ID]) {
+      expect(await codeOf(addPhoto(prisma, storage, { kind: "room", id }, jpeg()))).toBe("NOT_FOUND");
+      expect(await codeOf(addPhoto(prisma, storage, { kind: "house", id }, jpeg()))).toBe("NOT_FOUND");
+    }
     expect(storage.files.size).toBe(0);
-    expect(await prisma.roomPhoto.count()).toBe(0);
+  });
+
+  test("DB insert failure removes the uploaded file", async () => {
+    const { room, owner, storage } = await setup();
+    const db = {
+      room: prisma.room,
+      roomPhoto: {
+        count: () => prisma.roomPhoto.count({ where: { roomId: room.id } }),
+        aggregate: () => prisma.roomPhoto.aggregate({ _max: { sortOrder: true } }),
+        create: async () => {
+          throw new Error("db down");
+        },
+      },
+    } as unknown as typeof prisma;
+    await expect(addPhoto(db, storage, owner, jpeg())).rejects.toThrow("db down");
+    expect(storage.files.size).toBe(0);
   });
 });
 

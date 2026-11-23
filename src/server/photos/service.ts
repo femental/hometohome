@@ -19,6 +19,8 @@ export class PhotoError extends Error {
 export type PhotoOwnerKind = "house" | "room";
 export type PhotoOwner = { kind: PhotoOwnerKind; id: string };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" } as const;
 
 function startsWith(bytes: Uint8Array, sig: number[], offset = 0) {
@@ -46,6 +48,8 @@ function repo(db: Db, kind: PhotoOwnerKind) {
           .sortOrder,
       create: (ownerId: string, storagePath: string, sortOrder: number): Promise<HousePhoto> =>
         db.housePhoto.create({ data: { houseId: ownerId, storagePath, sortOrder } }),
+      ownerExists: async (ownerId: string) =>
+        (await db.house.count({ where: { id: ownerId } })) > 0,
       find: (id: string) => db.housePhoto.findUnique({ where: { id } }),
       delete: (id: string) => db.housePhoto.delete({ where: { id } }),
       setSort: (id: string, sortOrder: number) =>
@@ -61,6 +65,8 @@ function repo(db: Db, kind: PhotoOwnerKind) {
         .sortOrder,
     create: (ownerId: string, storagePath: string, sortOrder: number): Promise<RoomPhoto> =>
       db.roomPhoto.create({ data: { roomId: ownerId, storagePath, sortOrder } }),
+    ownerExists: async (ownerId: string) =>
+      (await db.room.count({ where: { id: ownerId } })) > 0,
     find: (id: string) => db.roomPhoto.findUnique({ where: { id } }),
     delete: (id: string) => db.roomPhoto.delete({ where: { id } }),
     setSort: (id: string, sortOrder: number) =>
@@ -79,7 +85,10 @@ export async function addPhoto(
   if (!detected || detected !== file.contentType) throw new PhotoError("BAD_TYPE");
   if (file.bytes.length > PHOTO_MAX_BYTES) throw new PhotoError("TOO_LARGE");
 
+  // Owner id ends up in the storage key: require a UUID and an existing owner first.
+  if (!UUID_RE.test(owner.id)) throw new PhotoError("NOT_FOUND");
   const r = repo(db, owner.kind);
+  if (!(await r.ownerExists(owner.id))) throw new PhotoError("NOT_FOUND");
   if ((await r.count(owner.id)) >= PHOTOS_PER_OWNER) throw new PhotoError("LIMIT");
   const sortOrder = ((await r.maxSort(owner.id)) ?? -1) + 1;
 
