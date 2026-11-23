@@ -23,7 +23,7 @@ export function nextFromParam(raw: string | null): string {
 /**
  * Last step of both sign-in routes. With a verified user: sync the `users` row (the only place
  * guests are synced) and go to `next`. Without one, or if the sync throws: sign out (drop any
- * half-made session) and go to `/{locale}/login?error=auth`, locale taken from `next`.
+ * half-made session) and go to `/{locale}/login?error=auth`, locale taken from `next` (ko for /admin).
  */
 export async function finishSignIn(supabase: SupabaseClient, user: User | null, next: string): Promise<NextResponse> {
   const env = serverEnv();
@@ -42,8 +42,13 @@ export async function finishSignIn(supabase: SupabaseClient, user: User | null, 
     }
   }
 
-  await supabase.auth.signOut();
-  const failed = new URL(`/${localeFromPath(next)}/login`, env.APP_URL);
+  // Local scope clears the session cookies before any network call; the default global scope
+  // revokes first and keeps the cookies if that request fails (e.g. the DB is down).
+  const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
+  if (signOutError) console.error("sign-in: sign-out after failure returned an error", signOutError.message);
+  // The admin is Korean-only, so a failed admin sign-in goes back to the Korean login page.
+  const locale = /^\/admin(?:[/?#]|$)/.test(next) ? "ko" : localeFromPath(next);
+  const failed = new URL(`/${locale}/login`, env.APP_URL);
   failed.searchParams.set("error", "auth");
   if (next !== "/") failed.searchParams.set("next", next);
   return NextResponse.redirect(failed);

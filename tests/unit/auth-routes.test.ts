@@ -107,6 +107,25 @@ test("callback: toAuthUser null → signOut and error redirect", async () => {
   expect(location(res)).toBe("/ko/login?error=auth&next=%2Fko");
 });
 
+test("failure sign-out is local: cookies are cleared even if signOut reports an error", async () => {
+  sb.auth.verifyOtp.mockResolvedValue({ data: { user: null }, error: new Error("expired") });
+  sb.auth.signOut.mockResolvedValueOnce({ error: new Error("revoke failed") } as never);
+  const res = await confirm(req("/auth/confirm?token_hash=abc&type=email&next=/en"));
+  expect(sb.auth.signOut).toHaveBeenCalledExactlyOnceWith({ scope: "local" });
+  expect(consoleError).toHaveBeenCalledOnce();
+  expect(location(res)).toBe("/en/login?error=auth&next=%2Fen");
+});
+
+test("failed sign-in for an /admin next goes to the Korean login", async () => {
+  sb.auth.verifyOtp.mockResolvedValue({ data: { user: null }, error: new Error("expired") });
+  for (const next of ["/admin", "/admin/bookings?status=requested"]) {
+    const res = await confirm(req(`/auth/confirm?token_hash=abc&type=email&next=${encodeURIComponent(next)}`));
+    expect(location(res)).toBe(`/ko/login?error=auth&next=${encodeURIComponent(next)}`);
+  }
+  const res = await callback(req("/auth/callback?next=/administrator"));
+  expect(location(res)).toBe("/en/login?error=auth&next=%2Fadministrator");
+});
+
 test("legacy /login redirects to /ko/login keeping a safe next", async () => {
   expect(location(legacyLogin(req("/login?next=/admin/bookings")))).toBe("/ko/login?next=%2Fadmin%2Fbookings");
   expect(location(legacyLogin(req("/login?next=//evil.com")))).toBe("/ko/login?next=%2F");
