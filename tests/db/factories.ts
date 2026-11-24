@@ -8,6 +8,7 @@ import { prisma, type Db } from "@/server/db";
 const toDate = (iso: ISODate) => new Date(`${iso}T00:00:00Z`);
 
 const TABLES = [
+  "fx_rates",
   "email_log",
   "refunds",
   "payments",
