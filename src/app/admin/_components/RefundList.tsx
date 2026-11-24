@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/Badge";
 import { formatKRW, formatKST, formatMinor } from "@/lib/format";
-import { markRefundDoneAction } from "../actions/bookings";
+import { markRefundDoneAction, retryRefundAction } from "../actions/bookings";
 import { ConfirmButton } from "./ConfirmButton";
 import {
   labelOf,
@@ -83,6 +83,16 @@ export function RefundList({ payments }: { payments: PaymentItem[] }) {
                       question="게스트에게 송금을 마쳤나요?"
                       confirmLabel="완료로 표시"
                       onConfirm={() => markRefundDoneAction(r.id)}
+                    />
+                  )}
+                  {!r.manual && r.status !== "done" && (
+                    <ConfirmButton
+                      size="sm"
+                      tone="neutral"
+                      label="환불 재시도"
+                      question="결제 대행사(PortOne)에 환불을 다시 요청할까요?"
+                      confirmLabel="재시도"
+                      onConfirm={() => retryRefundAction(r.id)}
                     />
                   )}
                 </li>

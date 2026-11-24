@@ -16,6 +16,8 @@ import { requireAdmin } from "@/server/auth/session";
 import { prisma } from "@/server/db";
 import { defaultEmailSender } from "@/server/email/sender";
 import { serverEnv } from "@/server/env";
+import { payDeps } from "@/server/payments/deps";
+import { runRefunds } from "@/server/payments/refunds";
 import { attempt, BOOKING_NOT_FOUND, INVALID_FORM, type ActionResult } from "./messages";
 
 // Every action starts with requireAdmin(): the page that renders a button is not a security boundary.
@@ -129,18 +131,37 @@ export async function cancelAction(bookingId: string): Promise<ActionResult> {
   await requireAdmin();
   const id = idSchema.safeParse(bookingId);
   if (!id.success) return notFound;
-  return run(id.data, (b) => adminCancel(deps(), b));
+  return run(id.data, async (b) => {
+    const { refundIds } = await adminCancel(deps(), b);
+    // Card/PayPal refunds go to the PG right away; if no PG is configured they stay pending for a retry.
+    const pd = payDeps();
+    if (pd) await runRefunds(pd, refundIds);
+  });
 }
 
-/** Marks a manual (offline) pending refund as sent. */
+/** Marks a manual (offline) pending refund as sent and mails the guest. */
 export async function markRefundDoneAction(refundId: string): Promise<ActionResult> {
   await requireAdmin();
   const id = idSchema.safeParse(refundId);
   if (!id.success) return notFound;
-  const r = await attempt(() => adminMarkRefundDone(prisma, id.data, "", new Date()));
+  const r = await attempt(() => adminMarkRefundDone(deps(), id.data));
   if (!r.ok) return r;
   const payment = await prisma.payment.findUnique({ where: { id: r.value.paymentId }, select: { bookingId: true } });
   if (payment) revalidateBooking(payment.bookingId);
+  return { ok: true };
+}
+
+/** Re-runs a failed (or still pending) PG refund. */
+export async function retryRefundAction(refundId: string): Promise<ActionResult> {
+  await requireAdmin();
+  const id = idSchema.safeParse(refundId);
+  if (!id.success) return notFound;
+  const pd = payDeps();
+  if (!pd) return { ok: false, error: "결제 대행사(PortOne) 설정이 없어 환불을 실행할 수 없습니다." };
+  const [outcome] = await runRefunds(pd, [id.data]);
+  const refund = await prisma.refund.findUnique({ where: { id: id.data }, select: { payment: { select: { bookingId: true } } } });
+  if (refund) revalidateBooking(refund.payment.bookingId);
+  if (outcome === "failed") return { ok: false, error: "PG 환불이 다시 실패했습니다. 잠시 후 다시 시도해 주세요." };
   return { ok: true };
 }
 

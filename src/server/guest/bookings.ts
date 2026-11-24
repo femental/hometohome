@@ -221,11 +221,11 @@ export async function guestCancel(
   userId: string,
   id: string,
   expectedKind: ExpectedRefundKind,
-): Promise<{ refundKrw: number }> {
+): Promise<{ refundKrw: number; refundIds: string[] }> {
   await assertOwn(deps.db, userId, id);
   const actor = { kind: "guest", userId } as const;
 
-  const { refund } = await cancelBooking(deps.db, id, actor, deps.now, { expectedKind });
+  const { refund, refundIds } = await cancelBooking(deps.db, id, actor, deps.now, { expectedKind });
 
   try {
     const b = await deps.db.booking.findUniqueOrThrow({
@@ -270,5 +270,5 @@ export async function guestCancel(
     console.error("[guest] cancellation notification failed", e);
   }
 
-  return { refundKrw: refund.amountKrw };
+  return { refundKrw: refund.amountKrw, refundIds };
 }

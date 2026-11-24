@@ -258,14 +258,14 @@ describe("refund and completion marks", () => {
     const base = { paymentId: payment.id, reason: "admin_cancel", amountKrw: 1, amountRefundedMinor: 1 } as const;
     const manual = await prisma.refund.create({ data: { ...base, manual: true } });
     const auto = await prisma.refund.create({ data: { ...base, manual: false } });
-    await expect(adminMarkRefundDone(prisma, auto.id, "n", NOW)).rejects.toMatchObject({ code: "INVALID_STATE" });
-    const done = await adminMarkRefundDone(prisma, manual.id, "sent", NOW);
+    await expect(adminMarkRefundDone(deps(), auto.id)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    const done = await adminMarkRefundDone(deps(), manual.id);
     expect(done.status).toBe("done");
-    await expect(adminMarkRefundDone(prisma, manual.id, "again", NOW)).rejects.toMatchObject({
+    await expect(adminMarkRefundDone(deps(), manual.id)).rejects.toMatchObject({
       code: "INVALID_STATE",
     });
     await expect(
-      adminMarkRefundDone(prisma, "00000000-0000-0000-0000-000000000000", "n", NOW),
+      adminMarkRefundDone(deps(), "00000000-0000-0000-0000-000000000000"),
     ).rejects.toMatchObject({ code: "INVALID_STATE" });
   });
 
@@ -399,6 +399,7 @@ describe("queries", () => {
       moveInsThisMonth: 2,
       moveOutsThisMonth: 1,
       manualRefundsPending: 1,
+      failedRefunds: 0,
     });
   });
 });

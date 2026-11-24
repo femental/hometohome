@@ -255,7 +255,7 @@ describe("booking actions succeed for the caller's own booking", () => {
   });
 
   test("cancelAction returns the server-computed refund", async () => {
-    vi.mocked(guestCancel).mockResolvedValueOnce({ refundKrw: 1_300_000 });
+    vi.mocked(guestCancel).mockResolvedValueOnce({ refundKrw: 1_300_000, refundIds: [] });
     expect(await bookingActions.cancelAction(BOOKING, "deposit_only", "en")).toEqual({ ok: true, refundKrw: 1_300_000 });
     expect(guestCancel).toHaveBeenCalledWith(
       expect.objectContaining({ appUrl: "http://localhost:3000", adminEmails: ["admin@example.com"] }),

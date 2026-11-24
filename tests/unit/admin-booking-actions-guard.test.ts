@@ -103,6 +103,7 @@ test("the actions file exports exactly the planned actions", () => {
     "depositReturnedAction",
     "markRefundDoneAction",
     "rejectAction",
+    "retryRefundAction",
   ]);
   for (const [name, fn] of Object.entries(all)) expect(typeof fn, name).toBe("function");
 });

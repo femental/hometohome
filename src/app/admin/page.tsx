@@ -21,6 +21,7 @@ export default async function AdminDashboard() {
     { label: "이번 달 입주 예정", value: counts.moveInsThisMonth, href: "/admin/bookings" },
     { label: "이번 달 퇴실 예정", value: counts.moveOutsThisMonth, href: "/admin/bookings" },
     { label: "수동 환불 처리 대기", value: counts.manualRefundsPending, href: "/admin/bookings" },
+    { label: "PG 환불 실패", value: counts.failedRefunds, href: "/admin/bookings" },
   ];
 
   return (

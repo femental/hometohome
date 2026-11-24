@@ -173,7 +173,7 @@ describe("cancel", () => {
 
     const email = new MemoryEmailSender();
     const r = await guestCancel(deps(email), guest.id, booking.id, "full");
-    expect(r).toEqual({ refundKrw: booking.firstPaymentTotal });
+    expect(r).toMatchObject({ refundKrw: booking.firstPaymentTotal });
     expect(await statusOf(booking.id)).toBe("cancelled");
 
     const refunds = await prisma.refund.findMany();
@@ -201,7 +201,7 @@ describe("cancel", () => {
     expect(preview!.payments[0].currency).toBe("USD");
 
     const r = await guestCancel(deps(), guest.id, booking.id, "deposit_only");
-    expect(r).toEqual({ refundKrw: 500_000 });
+    expect(r).toMatchObject({ refundKrw: 500_000 });
     const refund = await prisma.refund.findFirstOrThrow();
     expect(refund.reason).toBe("guest_cancel_deposit_only");
     expect(refund.amountRefundedMinor).toBe(preview!.payments[0].refundMinor);
@@ -224,7 +224,7 @@ describe("cancel", () => {
 
     expect(await guestPreviewCancel(prisma, guest.id, booking.id, t2)).toMatchObject({ kind: "deposit_only" });
     const r = await guestCancel(deps(email, t2), guest.id, booking.id, "deposit_only");
-    expect(r).toEqual({ refundKrw: 500_000 });
+    expect(r).toMatchObject({ refundKrw: 500_000 });
     expect(await statusOf(booking.id)).toBe("cancelled");
     expect((await prisma.refund.findFirstOrThrow()).reason).toBe("guest_cancel_deposit_only");
   });

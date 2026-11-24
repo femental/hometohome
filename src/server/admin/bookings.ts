@@ -19,6 +19,7 @@ import type { Db } from "@/server/db";
 import { sendEmail } from "@/server/email/send";
 import type { EmailSender } from "@/server/email/sender";
 import type { TemplateData, TemplateName } from "@/server/email/templates";
+import { sendRefundNotice } from "@/server/payments/refunds";
 
 export interface Deps {
   db: Db;
@@ -149,16 +150,15 @@ export async function adminCancel(d: Deps, bookingId: string): Promise<{ refundI
   return { refundIds };
 }
 
-/** Marks a manual (offline) pending refund as paid out. The schema has no note column, so `_note` is not stored. */
-export async function adminMarkRefundDone(db: Db, refundId: string, _note: string, now: Date): Promise<Refund> {
-  void _note;
-  void now;
-  const { count } = await db.refund.updateMany({
+/** Marks a manual (offline) pending refund as paid out and mails the guest `refund_completed`. */
+export async function adminMarkRefundDone(d: Deps, refundId: string): Promise<Refund> {
+  const { count } = await d.db.refund.updateMany({
     where: { id: refundId, manual: true, status: "pending" },
     data: { status: "done" },
   });
   if (count === 0) throw new BookingError("INVALID_STATE", "refund is not a pending manual refund");
-  return db.refund.findUniqueOrThrow({ where: { id: refundId } });
+  await sendRefundNotice(d, refundId, "completed");
+  return d.db.refund.findUniqueOrThrow({ where: { id: refundId } });
 }
 
 export const adminComplete = (db: Db, bookingId: string, now: Date) => markCompleted(db, bookingId, now);
@@ -329,12 +329,13 @@ export async function dashboardCounts(
   moveInsThisMonth: number;
   moveOutsThisMonth: number;
   manualRefundsPending: number;
+  failedRefunds: number;
 }> {
   const monthStart = `${todayKST(now).slice(0, 7)}-01`;
   const month = { gte: toDbDate(monthStart), lt: toDbDate(addMonthsClamped(monthStart, 1)) };
   const stays = { in: ["confirmed", "completed"] as BookingStatus[] };
 
-  const [pendingRequests, awaitingPayment, moveInsThisMonth, moveOutsThisMonth, manualRefundsPending] =
+  const [pendingRequests, awaitingPayment, moveInsThisMonth, moveOutsThisMonth, manualRefundsPending, failedRefunds] =
     await Promise.all([
       db.booking.count({
         where: { status: "requested", OR: [{ requestExpiresAt: null }, { requestExpiresAt: { gt: now } }] },
@@ -345,6 +346,7 @@ export async function dashboardCounts(
       db.booking.count({ where: { status: stays, moveIn: month } }),
       db.booking.count({ where: { status: stays, moveOut: month } }),
       db.refund.count({ where: { manual: true, status: "pending" } }),
+      db.refund.count({ where: { manual: false, status: "failed" } }),
     ]);
-  return { pendingRequests, awaitingPayment, moveInsThisMonth, moveOutsThisMonth, manualRefundsPending };
+  return { pendingRequests, awaitingPayment, moveInsThisMonth, moveOutsThisMonth, manualRefundsPending, failedRefunds };
 }

@@ -8,6 +8,8 @@ import { requireUser } from "@/server/auth/guest";
 import { prisma } from "@/server/db";
 import { defaultEmailSender } from "@/server/email/sender";
 import { serverEnv } from "@/server/env";
+import { payDeps } from "@/server/payments/deps";
+import { runRefunds } from "@/server/payments/refunds";
 import {
   guestBookingErrorKey,
   guestCancel,
@@ -68,9 +70,10 @@ export async function cancelAction(
   if (!kind.success) return { ok: false, error: "VALIDATION" };
 
   let refundKrw: number;
+  let refundIds: string[];
   try {
     const env = serverEnv();
-    ({ refundKrw } = await guestCancel(
+    ({ refundKrw, refundIds } = await guestCancel(
       { db: prisma, email: defaultEmailSender(), now: new Date(), appUrl: env.APP_URL, adminEmails: env.ADMIN_EMAILS },
       user.id,
       bookingId,
@@ -82,6 +85,9 @@ export async function cancelAction(
     if (error !== "NOT_FOUND") revalidateBookings();
     return { ok: false, error };
   }
+  // The cancellation is committed; card/PayPal refunds go to the PG now (a failure alerts the operator).
+  const pd = payDeps();
+  if (pd) await runRefunds(pd, refundIds);
   revalidateBookings();
   return { ok: true, refundKrw };
 }

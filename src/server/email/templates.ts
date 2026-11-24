@@ -16,7 +16,9 @@ export type TemplateName =
   | "admin_payment_received"
   | "admin_booking_cancelled"
   | "late_payment_refund"
-  | "admin_late_payment_refund";
+  | "admin_late_payment_refund"
+  | "refund_completed"
+  | "admin_refund_failed";
 
 export interface TemplateData {
   guestName: string;
@@ -277,6 +279,36 @@ const TEMPLATES: Record<TemplateName, Template> = {
       subject: `[운영] 기한 후 결제 자동 환불 – ${v.place}`,
       lines: [
         `${v.guest}님이 ${v.place} (${v.stay}) 결제 기한이 지난 뒤 결제하여 자동으로 환불 처리했습니다. 환불 금액: ${v.refund}`,
+        ...(v.bookingUrl ? [link("관리자 화면에서 보기", v.bookingUrl)] : []),
+      ],
+    }),
+  },
+  refund_completed: {
+    need: ["refundKrw"],
+    en: (v) => ({
+      subject: `Your refund has been processed – ${v.place}`,
+      lines: [
+        `Hi ${v.guest},`,
+        `Your refund of ${v.refund} for ${v.place} (${v.stay}) has been processed.`,
+        "Card and PayPal refunds can take a few business days to appear, depending on your card issuer or PayPal.",
+      ],
+    }),
+    ko: (v) => ({
+      subject: `환불이 완료되었습니다 – ${v.place}`,
+      lines: [
+        `${v.guest}님, 안녕하세요.`,
+        `${v.place} (${v.stay}) 예약의 환불 ${v.refund} 처리가 완료되었습니다.`,
+        "카드사나 PayPal에 따라 실제 반영까지 영업일 기준 며칠이 걸릴 수 있습니다.",
+      ],
+    }),
+  },
+  admin_refund_failed: {
+    need: ["refundKrw"],
+    ko: (v) => ({
+      subject: `[운영] PG 환불 실패 – ${v.place}`,
+      lines: [
+        `${v.guest}님의 ${v.place} (${v.stay}) 환불 ${v.refund}이(가) PG에서 처리되지 않았습니다.`,
+        "관리자 화면의 결제·환불 내역에서 '환불 재시도'를 눌러 주세요.",
         ...(v.bookingUrl ? [link("관리자 화면에서 보기", v.bookingUrl)] : []),
       ],
     }),
