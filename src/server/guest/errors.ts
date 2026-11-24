@@ -3,9 +3,9 @@ import { BOOKING_ERROR_CODES, BookingError, type BookingErrorCode } from "@/serv
 // Not server-only: guest forms import the key mapping to show the localized message.
 
 /** What guest actions return on failure; shown through `errors.*` messages, never as the raw code. */
-export type GuestErrorKey = BookingErrorCode | "VALIDATION";
+export type GuestErrorKey = BookingErrorCode | "VALIDATION" | "RATE_LIMITED";
 
-export const GUEST_ERROR_KEYS: readonly GuestErrorKey[] = [...BOOKING_ERROR_CODES, "VALIDATION"];
+export const GUEST_ERROR_KEYS: readonly GuestErrorKey[] = [...BOOKING_ERROR_CODES, "VALIDATION", "RATE_LIMITED"];
 
 /** A guest-only refusal that is not a booking-domain rule. */
 export class GuestError extends Error {

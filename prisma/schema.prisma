@@ -333,3 +333,14 @@ model EmailLog {
   @@index([bookingId])
   @@map("email_log")
 }
+
+/// Fixed-window request counters. `key` is a sha256 hash (never a raw email or IP).
+model RateLimit {
+  key         String
+  windowStart DateTime @map("window_start") @db.Timestamptz(3)
+  count       Int      @default(0)
+
+  @@id([key, windowStart])
+  @@index([windowStart])
+  @@map("rate_limits")
+}

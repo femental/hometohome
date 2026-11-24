@@ -1,9 +1,12 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { routing, type Locale } from "@/i18n/routing";
+import { prisma } from "@/server/db";
 import { serverEnv } from "@/server/env";
+import { allowMagicLink, clientIp } from "@/server/rate-limit";
 import { createSupabaseServerClient } from "@/server/auth/supabase";
 import { safeNext } from "@/server/auth/session";
 
@@ -33,6 +36,8 @@ export async function sendMagicLink(formData: FormData): Promise<void> {
   const { locale, next } = readForm(formData);
   const email = emailSchema.safeParse(formData.get("email"));
   if (!email.success) redirect(loginUrl(locale, { error: "email" }, next));
+  const allowed = await allowMagicLink(prisma, { email: email.data, ip: clientIp(await headers()) }, new Date());
+  if (!allowed) redirect(loginUrl(locale, { error: "rate" }, next));
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithOtp({

@@ -9,7 +9,7 @@ import { Field } from "@/components/ui/Field";
 import { routing } from "@/i18n/routing";
 import { sendMagicLink, signInWithGoogle } from "./actions";
 
-const ERROR_KEYS = ["email", "send", "oauth", "auth"] as const;
+const ERROR_KEYS = ["email", "send", "oauth", "auth", "rate"] as const;
 type ErrorKey = (typeof ERROR_KEYS)[number];
 
 function first(v: string | string[] | undefined): string | undefined {

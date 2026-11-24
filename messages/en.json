@@ -4,7 +4,18 @@
     "tagline": "Rooms in Seoul for international guests",
     "metaDescription": "Find and book a room in Seoul. Prices in KRW with a USD reference.",
     "loading": "Loading…",
-    "skipToContent": "Skip to content"
+    "skipToContent": "Skip to content",
+    "errorPage": {
+      "title": "Something went wrong",
+      "body": "An unexpected error occurred. Please try again.",
+      "retry": "Try again",
+      "home": "Go to home"
+    },
+    "notFound": {
+      "title": "Page not found",
+      "body": "The page you are looking for does not exist or has moved.",
+      "home": "Go to home"
+    }
   },
   "nav": {
     "search": "Search",
@@ -43,7 +54,8 @@
       "email": "Please enter a valid email address.",
       "send": "We couldn't send the link. Please try again in a minute.",
       "oauth": "Google sign-in failed. Please try again.",
-      "auth": "This sign-in link is invalid or has expired. Please request a new one."
+      "auth": "This sign-in link is invalid or has expired. Please request a new one.",
+      "rate": "Too many sign-in links were requested. Please try again later."
     }
   },
   "search": {
@@ -205,7 +217,8 @@
     "VALIDATION": "Please check the highlighted fields.",
     "NOT_FOUND": "This room could not be found or is no longer open for booking.",
     "AMOUNT_MISMATCH": "The payment amount does not match this booking, so it was not applied. Please contact us.",
-    "REFUND_CHANGED": "The refund for this cancellation has changed. Please review the new amount and confirm again."
+    "REFUND_CHANGED": "The refund for this cancellation has changed. Please review the new amount and confirm again.",
+    "RATE_LIMITED": "Too many requests. Please wait a moment and try again."
   },
   "legal": {
     "metaTitle": {

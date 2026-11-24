@@ -1,6 +1,7 @@
 "use server";
 
 import { hasLocale } from "next-intl";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { requireUser } from "@/server/auth/guest";
@@ -16,6 +17,7 @@ import {
   type QuoteResult,
   type SubmitRequestResult,
 } from "@/server/guest/requests";
+import { allowQuote, clientIp } from "@/server/rate-limit";
 
 // Only the actions are exported: every export of a "use server" file is a public endpoint.
 // Guest actions start with requireUser(); quoteAction is the one public exception (price preview).
@@ -49,7 +51,9 @@ export async function quoteAction(input: {
 }): Promise<QuoteResult> {
   const parsed = quoteInput.safeParse(input);
   if (!parsed.success) return { ok: false, error: "VALIDATION" };
-  return quoteRoom(prisma, parsed.data, new Date());
+  const now = new Date();
+  if (!(await allowQuote(prisma, clientIp(await headers()), now))) return { ok: false, error: "RATE_LIMITED" };
+  return quoteRoom(prisma, parsed.data, now);
 }
 
 /** Submits a booking request, then redirects to the new booking. Failures come back as a GuestErrorKey. */

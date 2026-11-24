@@ -36,6 +36,11 @@ vi.mock("@/server/email/sender", () => ({ defaultEmailSender: vi.fn(() => ({ sen
 vi.mock("@/server/env", () => ({
   serverEnv: vi.fn(() => ({ APP_URL: "http://localhost:3000", ADMIN_EMAILS: ["admin@example.com"] })),
 }));
+vi.mock("@/server/rate-limit", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/server/rate-limit")>();
+  return { ...real, allowQuote: vi.fn(async () => true) };
+});
+vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" })) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((url: string) => {
@@ -53,6 +58,7 @@ import { serverEnv } from "@/server/env";
 import { guestCancel, guestWithdraw } from "@/server/guest/bookings";
 import { GuestError } from "@/server/guest/errors";
 import { quoteRoom, submitRequest } from "@/server/guest/requests";
+import { allowQuote } from "@/server/rate-limit";
 import * as roomActions from "@/app/[locale]/rooms/[id]/actions";
 import * as accountActions from "@/app/[locale]/account/actions";
 import * as bookingActions from "@/app/[locale]/bookings/actions";
@@ -195,6 +201,14 @@ describe("quoteAction (public)", () => {
     const r = await roomActions.quoteAction({ roomId: ROOM, moveIn: "2027-03-15", lastNight: "2027-05-14", occupants: 1 });
     expect(r).toEqual({ ok: false, error: "NOT_FOUND" });
     expect(quoteRoom).toHaveBeenCalledOnce();
+    expect(vi.mocked(allowQuote).mock.calls[0][1]).toBe("203.0.113.9");
+  });
+
+  test("over the per-IP limit it refuses without a lookup", async () => {
+    vi.mocked(allowQuote).mockResolvedValueOnce(false);
+    const r = await roomActions.quoteAction({ roomId: ROOM, moveIn: "2027-03-15", lastNight: "2027-05-14", occupants: 1 });
+    expect(r).toEqual({ ok: false, error: "RATE_LIMITED" });
+    expect(quoteRoom).not.toHaveBeenCalled();
   });
 });
 

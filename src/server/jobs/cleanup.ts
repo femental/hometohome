@@ -4,11 +4,13 @@ import { reconcileProcessingRefunds } from "@/server/payments/refunds";
 import { cleanupStalePayments } from "@/server/payments/service";
 import { cleanupOrphanPhotos } from "@/server/photos/service";
 import type { PhotoStorage } from "@/server/photos/storage";
+import { cleanupRateLimits } from "@/server/rate-limit";
 import type { JobDeps } from "./expire";
 
 /** Daily housekeeping; each step reports how many rows/files it handled. */
 export async function runDailyCleanup(d: JobDeps, photos?: PhotoStorage): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
+  out.rateLimitRowsDeleted = await cleanupRateLimits(d.db, d.now);
   if (photos) out.orphanPhotosDeleted = (await cleanupOrphanPhotos(d.db, photos, d.now)).deleted;
   const pd = payDeps(d.now);
   if (pd) {

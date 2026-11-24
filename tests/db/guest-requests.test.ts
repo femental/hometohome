@@ -4,6 +4,8 @@ vi.mock("@/server/env", () => ({
   serverEnv: () => ({ APP_URL: "http://localhost:3000", ADMIN_EMAILS: ["admin@example.com"] }),
 }));
 
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+
 import { quoteAction } from "@/app/[locale]/rooms/[id]/actions";
 import { BookingError } from "@/server/bookings/errors";
 import { prisma } from "@/server/db";
