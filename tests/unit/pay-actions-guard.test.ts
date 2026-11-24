@@ -41,13 +41,20 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-test("exports exactly the two pay actions", () => {
-  expect(Object.keys(payActions).sort()).toEqual(["completePaymentAction", "preparePaymentAction"]);
+test("exports exactly the pay actions", () => {
+  expect(Object.keys(payActions).sort()).toEqual(["completePaymentAction", "fakeCheckoutAction", "preparePaymentAction"]);
+});
+
+test("fake checkout is refused outside fake mode", async () => {
+  guard.signedIn = true;
+  expect(await payActions.fakeCheckoutAction(PAYMENT, "en")).toEqual({ ok: false, error: "NOT_FOUND" });
+  expect(completePayment).not.toHaveBeenCalled();
 });
 
 test("anonymous callers are redirected before any service, PG or DB use", async () => {
   await expect(payActions.preparePaymentAction(BOOKING, "card", "en")).rejects.toThrow(/NEXT_REDIRECT/);
   await expect(payActions.completePaymentAction(PAYMENT, "en")).rejects.toThrow(/NEXT_REDIRECT/);
+  await expect(payActions.fakeCheckoutAction(PAYMENT, "en")).rejects.toThrow(/NEXT_REDIRECT/);
   expect(payDeps).not.toHaveBeenCalled();
   expect(preparePayment).not.toHaveBeenCalled();
   expect(completePayment).not.toHaveBeenCalled();

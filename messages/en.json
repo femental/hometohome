@@ -303,6 +303,27 @@
     "memo": "Write your booking reference {ref} in the transfer memo.",
     "afterTransfer": "Once the operator confirms your transfer, we'll email you the booking confirmation.",
     "noBankInfo": "Bank details aren't set up yet. Please contact us for payment instructions.",
-    "contactEmail": "Contact: {email}"
+    "contactEmail": "Contact: {email}",
+    "payCard": "Pay by card",
+    "payPaypal": "Pay with PayPal",
+    "cardNote": "Charged in KRW. Your card issuer converts it to your currency.",
+    "paypalNote": "Charged in USD at {rate}. PayPal or your card issuer may add conversion fees.",
+    "paypalHint": "Complete the payment with the PayPal button below.",
+    "processing": "Processing your payment…",
+    "failed": "The payment didn't go through. You can try again before the deadline.",
+    "unavailable": "This payment method isn't available right now. Please try another one or pay by bank transfer.",
+    "fxUnavailable": "PayPal isn't available right now. Please pay by card.",
+    "testMode": "Test mode: no real charge is made.",
+    "orBank": "Prefer a bank transfer?",
+    "completeHeading": "Payment result",
+    "outcome": {
+      "confirmed": "Payment received — your booking is confirmed. A confirmation email is on its way.",
+      "already_confirmed": "Payment received — your booking is confirmed.",
+      "late_refunded": "Your payment arrived after the payment window closed, so the booking was not confirmed. It is being refunded in full.",
+      "duplicate_refunded": "This booking was already paid, so this second payment is being refunded in full.",
+      "not_paid": "The payment wasn't completed. You can try again before the deadline.",
+      "amount_mismatch": "We couldn't verify this payment, so it is being cancelled. Please contact us.",
+      "unknown_payment": "We couldn't find this payment. Please check your booking."
+    }
   }
 }

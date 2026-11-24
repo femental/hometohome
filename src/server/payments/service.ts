@@ -78,8 +78,11 @@ export async function preparePayment(
   if (!b || b.guestId !== userId) throw new BookingError("NOT_FOUND");
   if (effectiveStatus(b, d.now) !== "awaiting_payment") throw new BookingError("INVALID_STATE", "hold is not live");
 
-  const channelKey = method === "card" ? d.config.channelKeyCard : d.config.channelKeyPaypal;
-  if (!d.config.storeId || !channelKey) throw new PaymentFlowError("CHANNEL_UNAVAILABLE");
+  // Dev fake mode needs no PortOne account: placeholder ids, the fake PG never sees them.
+  const channelKey =
+    (method === "card" ? d.config.channelKeyCard : d.config.channelKeyPaypal) ?? (d.config.fake ? `fake-${method}` : undefined);
+  const storeId = d.config.storeId ?? (d.config.fake ? "fake-store" : undefined);
+  if (!storeId || !channelKey) throw new PaymentFlowError("CHANNEL_UNAVAILABLE");
 
   let currency: "KRW" | "USD" = "KRW";
   let totalAmount = b.firstPaymentTotal;
@@ -107,7 +110,7 @@ export async function preparePayment(
 
   return {
     paymentId: row.id,
-    storeId: d.config.storeId,
+    storeId,
     channelKey,
     currency,
     totalAmount,

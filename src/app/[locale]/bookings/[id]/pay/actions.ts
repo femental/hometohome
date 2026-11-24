@@ -9,6 +9,7 @@ import { BookingError } from "@/server/bookings/errors";
 import { prisma } from "@/server/db";
 import { isBookingId } from "@/server/guest/bookings";
 import { payDeps } from "@/server/payments/deps";
+import { defaultPortOneClient, FakePortOne, portOneConfig } from "@/server/payments/portone";
 import {
   completePayment,
   PaymentFlowError,
@@ -65,4 +66,26 @@ export async function completePaymentAction(paymentId: string, locale?: string):
   revalidatePath("/[locale]/bookings", "page");
   revalidatePath("/[locale]/bookings/[id]", "page");
   return { ok: true, outcome };
+}
+
+/**
+ * Dev-only checkout (`PORTONE_FAKE=1`, never in production): records the caller's own pending payment
+ * as PAID in the in-memory fake PG, then verifies it exactly like a real checkout.
+ */
+export async function fakeCheckoutAction(paymentId: string, locale?: string): Promise<CompleteResult> {
+  const user = await requireUser(`/${localeOf(locale)}/bookings`);
+  const cfg = portOneConfig();
+  if (!cfg.fake || !uuid.safeParse(paymentId).success) return { ok: false, error: "NOT_FOUND" };
+  const row = await prisma.payment.findFirst({ where: { id: paymentId, booking: { guestId: user.id }, status: "pending" } });
+  const pg = defaultPortOneClient(cfg);
+  if (!row || !(pg instanceof FakePortOne)) return { ok: false, error: "NOT_FOUND" };
+  pg.payments.set(row.id, {
+    id: row.id,
+    status: "PAID",
+    amount: { total: row.amountChargedMinor, cancelled: 0 },
+    currency: row.currency,
+    pgTxId: `fake-${row.id.slice(0, 8)}`,
+    raw: { fake: true },
+  });
+  return completePaymentAction(paymentId, locale);
 }

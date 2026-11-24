@@ -6,14 +6,18 @@ import { Suspense } from "react";
 import { Card } from "@/components/ui/Card";
 import { redirect } from "@/i18n/navigation";
 import { routing, type Locale } from "@/i18n/routing";
-import { formatKRW, formatKST } from "@/lib/format";
+import { DEFAULT_FX_MARGIN, quoteForeignMinor } from "@/domain/fx";
+import { formatKRW, formatKST, formatMinor } from "@/lib/format";
 import { formatUsdReference, pickText } from "@/lib/i18n-text";
 import { requireUser } from "@/server/auth/guest";
 import { prisma } from "@/server/db";
 import { bankTransferInfo, businessInfo } from "@/server/env";
 import { getMyBooking, isBookingId } from "@/server/guest/bookings";
 import { bookingRef } from "../../_components/BookingStatus";
+import { getUsdKrwRate } from "@/server/fx/rates";
+import { portOneConfig } from "@/server/payments/portone";
 import { Countdown } from "./_components/Countdown";
+import { MethodPicker, type MethodOptions } from "./_components/MethodPicker";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/bookings/[id]/pay">): Promise<Metadata> {
   const { locale } = await params;
@@ -39,6 +43,31 @@ function bankInstructions(locale: Locale): string | null {
       ? [info.BANK_TRANSFER_INFO_KO, info.BANK_TRANSFER_INFO_EN]
       : [info.BANK_TRANSFER_INFO_EN, info.BANK_TRANSFER_INFO_KO];
   return mine ?? other ?? null;
+}
+
+/**
+ * The online methods this deployment can take, with the exact amounts the server will charge:
+ * card in KRW; PayPal in USD at today's rate plus the 2% margin (hidden when no rate is available).
+ * Null when no PG is configured (bank transfer only).
+ */
+async function onlineMethods(firstPaymentTotal: number): Promise<{ methods: MethodOptions; fake: boolean } | null> {
+  const cfg = portOneConfig();
+  const hasCard = cfg.fake || Boolean(cfg.storeId && cfg.channelKeyCard && cfg.apiSecret);
+  const hasPaypal = cfg.fake || Boolean(cfg.storeId && cfg.channelKeyPaypal && cfg.apiSecret);
+  if (!hasCard && !hasPaypal) return null;
+
+  const methods: MethodOptions = {};
+  if (hasCard) methods.card = { amountLabel: formatKRW(firstPaymentTotal) };
+  if (hasPaypal) {
+    const rate = await getUsdKrwRate(prisma, new Date());
+    if (rate) {
+      methods.paypal = {
+        amountLabel: formatMinor("USD", quoteForeignMinor(firstPaymentTotal, rate.rate, DEFAULT_FX_MARGIN)),
+        rateLabel: `1 USD = ${formatKRW(Math.round(rate.rate))} (${rate.date})`,
+      };
+    }
+  }
+  return methods.card || methods.paypal ? { methods, fake: cfg.fake } : null;
 }
 
 function Amount({ label, amount, strong = false }: { label: string; amount: number; strong?: boolean }) {
@@ -68,6 +97,7 @@ async function Pay({ params }: Pick<PageProps<"/[locale]/bookings/[id]/pay">, "p
   if (b.status !== "awaiting_payment" || !b.holdExpiresAt) return redirect({ href: `/bookings/${b.id}`, locale });
   const holdExpiresAt = b.holdExpiresAt;
 
+  const online = await onlineMethods(b.price.firstPaymentTotal);
   const bank = bankInstructions(locale);
   const contact = businessInfo().BUSINESS_EMAIL;
   const ref = bookingRef(b.id);
@@ -94,9 +124,21 @@ async function Pay({ params }: Pick<PageProps<"/[locale]/bookings/[id]/pay">, "p
         </dl>
       </Card>
 
-      <Card title={t("methodHeading")}>
+      {online && (
+        <Card title={t("methodHeading")}>
+          <MethodPicker
+            bookingId={b.id}
+            locale={locale}
+            methods={online.methods}
+            fake={online.fake}
+            expired={false /* only a live hold reaches this page; the countdown handles expiry */}
+          />
+        </Card>
+      )}
+
+      <Card title={online ? t("orBank") : t("methodHeading")}>
         <div className="flex flex-col gap-3 text-sm text-zinc-700">
-          <p>{t("onlineLater")}</p>
+          {!online && <p>{t("onlineLater")}</p>}
           {bank ? (
             <>
               <p>{t("bankIntro")}</p>

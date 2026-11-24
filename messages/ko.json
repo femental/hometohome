@@ -303,6 +303,27 @@
     "memo": "입금자 메모에 예약 번호 {ref}를 적어 주세요.",
     "afterTransfer": "입금 후 운영자가 확인하면 확정 메일이 발송됩니다.",
     "noBankInfo": "계좌 정보가 아직 등록되지 않았습니다. 결제 방법은 운영자에게 문의해 주세요.",
-    "contactEmail": "문의: {email}"
+    "contactEmail": "문의: {email}",
+    "payCard": "카드로 결제",
+    "payPaypal": "PayPal로 결제",
+    "cardNote": "원화(KRW)로 결제되며, 카드사가 본인 통화로 환산합니다.",
+    "paypalNote": "{rate} 기준 달러(USD)로 결제됩니다. PayPal이나 카드사의 환전 수수료가 별도로 붙을 수 있습니다.",
+    "paypalHint": "아래 PayPal 버튼으로 결제를 마쳐 주세요.",
+    "processing": "결제를 처리하고 있습니다…",
+    "failed": "결제가 완료되지 않았습니다. 마감 전까지 다시 시도할 수 있습니다.",
+    "unavailable": "지금은 이 결제 수단을 쓸 수 없습니다. 다른 수단이나 계좌이체로 결제해 주세요.",
+    "fxUnavailable": "지금은 PayPal 결제를 쓸 수 없습니다. 카드로 결제해 주세요.",
+    "testMode": "테스트 모드: 실제로 결제되지 않습니다.",
+    "orBank": "계좌이체를 원하시나요?",
+    "completeHeading": "결제 결과",
+    "outcome": {
+      "confirmed": "결제가 완료되어 예약이 확정되었습니다. 확정 메일을 보내드렸습니다.",
+      "already_confirmed": "결제가 완료되어 예약이 확정되었습니다.",
+      "late_refunded": "결제 기한이 지난 뒤 결제가 도착해 예약이 확정되지 않았습니다. 전액 환불이 진행됩니다.",
+      "duplicate_refunded": "이미 결제된 예약이라 이번 결제는 전액 환불됩니다.",
+      "not_paid": "결제가 완료되지 않았습니다. 마감 전까지 다시 시도할 수 있습니다.",
+      "amount_mismatch": "결제를 확인할 수 없어 취소 처리합니다. 문의해 주세요.",
+      "unknown_payment": "결제 내역을 찾을 수 없습니다. 예약 화면을 확인해 주세요."
+    }
   }
 }
