@@ -4,7 +4,7 @@ import { cancelBooking } from "@/server/bookings/service";
 import { adminMarkRefundDone, dashboardCounts } from "@/server/admin/bookings";
 import { MemoryEmailSender } from "@/server/email/sender";
 import { FakePortOne } from "@/server/payments/portone";
-import { executeRefund, runRefunds, type RefundNoticeDeps } from "@/server/payments/refunds";
+import { executeRefund, reconcileProcessingRefunds, runRefunds, type RefundNoticeDeps } from "@/server/payments/refunds";
 import { makeBooking, makeGuest, makeRoom, resetDb } from "./factories";
 
 beforeEach(() => resetDb());
@@ -130,5 +130,22 @@ test("manual (offline) refund marked done sends refund_completed to the guest", 
   await adminMarkRefundDone(d, refundIds[0]);
   expect(d.pg.cancelCalls).toHaveLength(0);
   expect(d.email.sent.map((m) => m.to)).toEqual([guest.email]);
+  expect((await prisma.emailLog.findFirstOrThrow()).template).toBe("refund_completed");
+});
+
+test("REQUESTED (async) cancellation stays processing until the PG shows it cancelled, then done + refund_completed", async () => {
+  const d = deps();
+  const { booking, payment, guest } = await paidBooking(d);
+  const { refundIds } = await cancelBooking(prisma, booking.id, { kind: "guest", userId: guest.id }, now);
+  d.pg.nextCancelStatus = "REQUESTED";
+  expect(await runRefunds(d, refundIds)).toEqual(["processing"]);
+  expect((await prisma.refund.findUniqueOrThrow({ where: { id: refundIds[0] } })).status).toBe("processing");
+  expect(d.email.sent).toHaveLength(0);
+
+  // The PG finishes the cancellation later; reconciliation (webhook or daily job) records it.
+  const later = { ...d, now: new Date(now.getTime() + 3600_000) };
+  expect(await reconcileProcessingRefunds(later)).toEqual({ done: 1, stillPending: 0 });
+  expect((await prisma.refund.findUniqueOrThrow({ where: { id: refundIds[0] } })).status).toBe("done");
+  expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe("refunded");
   expect((await prisma.emailLog.findFirstOrThrow()).template).toBe("refund_completed");
 });

@@ -3,7 +3,14 @@ import { prisma } from "@/server/db";
 import { MemoryEmailSender } from "@/server/email/sender";
 import { FakePortOne } from "@/server/payments/portone";
 import { createHmac, randomBytes } from "node:crypto";
-import { completePayment, handlePortOneWebhook, preparePayment, PaymentFlowError, type PayDeps } from "@/server/payments/service";
+import {
+  cleanupStalePayments,
+  completePayment,
+  handlePortOneWebhook,
+  preparePayment,
+  PaymentFlowError,
+  type PayDeps,
+} from "@/server/payments/service";
 import { makeBooking, makeGuest, makeRoom, resetDb } from "./factories";
 
 beforeEach(() => resetDb());
@@ -188,6 +195,43 @@ describe("completePayment", () => {
     pgPaid(d, { paymentId: p2row.id, totalAmount: 1_300_000, currency: "KRW" });
     expect((await completePayment(d, p2row.id)).outcome).toBe("duplicate_refunded");
     expect(d.pg.cancelCalls.map((c) => c.paymentId)).toEqual([p2row.id]);
+  });
+});
+
+describe("operational hardening", () => {
+  test("PAID payment refused by confirmPaid → PG full cancel, payment failed, admin_payment_problem", async () => {
+    const d = deps();
+    const { guest, booking } = await awaitingBooking();
+    const p = await preparePayment(d, guest.id, booking.id, "card", "en");
+    pgPaid(d, p);
+    // The booking's price changed under the payment (row amount no longer equals firstPaymentTotal).
+    await prisma.booking.update({ where: { id: booking.id }, data: { firstPaymentTotal: 1_400_000 } });
+    expect((await completePayment(d, p.paymentId)).outcome).toBe("refused");
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: p.paymentId } })).status).toBe("failed");
+    expect(d.pg.cancelCalls).toEqual([expect.objectContaining({ paymentId: p.paymentId, amount: 1_300_000 })]);
+    expect((await prisma.emailLog.findMany()).map((e) => e.template)).toEqual(["admin_payment_problem"]);
+  });
+
+  test("amount_mismatch emails operators", async () => {
+    const d = deps();
+    const { guest, booking } = await awaitingBooking();
+    const p = await preparePayment(d, guest.id, booking.id, "card", "en");
+    pgPaid(d, p, { total: 1000 });
+    expect((await completePayment(d, p.paymentId)).outcome).toBe("amount_mismatch");
+    expect((await prisma.emailLog.findMany()).map((e) => e.template)).toEqual(["admin_payment_problem"]);
+  });
+
+  test("stale pending payments (24h) are cancelled; one the PG shows PAID is completed instead", async () => {
+    const d = deps();
+    const { guest, booking } = await awaitingBooking();
+    const abandoned = await preparePayment(d, guest.id, booking.id, "card", "en");
+    const paidLate = await preparePayment(d, guest.id, booking.id, "card", "en");
+    pgPaid(d, paidLate);
+    await prisma.payment.updateMany({ data: { createdAt: new Date(now.getTime() - 25 * 3600_000) } });
+    const res = await cleanupStalePayments(d);
+    expect(res).toEqual({ cancelled: 1, completed: 1 });
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: abandoned.paymentId } })).status).toBe("cancelled");
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: paidLate.paymentId } })).status).toBe("paid");
   });
 });
 

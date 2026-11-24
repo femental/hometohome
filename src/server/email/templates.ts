@@ -19,7 +19,8 @@ export type TemplateName =
   | "admin_late_payment_refund"
   | "refund_completed"
   | "admin_refund_failed"
-  | "payment_reminder";
+  | "payment_reminder"
+  | "admin_payment_problem";
 
 export interface TemplateData {
   guestName: string;
@@ -321,6 +322,18 @@ const TEMPLATES: Record<TemplateName, Template> = {
         `${v.guest}님, 안녕하세요.`,
         `${v.place} (${v.stay}) 예약의 환불 ${v.refund} 처리가 완료되었습니다.`,
         "카드사나 PayPal에 따라 실제 반영까지 영업일 기준 며칠이 걸릴 수 있습니다.",
+      ],
+    }),
+  },
+  admin_payment_problem: {
+    need: ["reason"],
+    ko: (v) => ({
+      subject: `[운영] 결제 확인 문제 – ${v.place}`,
+      lines: [
+        `${v.guest}님의 ${v.place} (${v.stay}) 결제를 예약에 반영할 수 없어 PG에서 취소했습니다.`,
+        `사유: ${v.reason}`,
+        "PG 콘솔과 관리자 화면에서 결제·환불 상태를 확인하고, 필요하면 게스트에게 연락해 주세요.",
+        ...(v.bookingUrl ? [link("관리자 화면에서 보기", v.bookingUrl)] : []),
       ],
     }),
   },

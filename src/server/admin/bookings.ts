@@ -265,6 +265,7 @@ export type AdminBookingDetail = Omit<
     fxRate: string | null;
     status: string;
     offlineNote: string | null;
+    pgTxId: string | null;
     paidAt: Date | null;
     createdAt: Date;
     refunds: Refund[];
@@ -304,6 +305,7 @@ export async function getBookingDetail(db: Db, id: string, now: Date): Promise<A
       fxRate: p.fxRate === null ? null : p.fxRate.toString(),
       status: p.status,
       offlineNote: p.offlineNote,
+      pgTxId: p.pgTxId,
       paidAt: p.paidAt,
       createdAt: p.createdAt,
       refunds: p.refunds,

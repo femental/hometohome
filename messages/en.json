@@ -323,7 +323,8 @@
       "duplicate_refunded": "This booking was already paid, so this second payment is being refunded in full.",
       "not_paid": "The payment wasn't completed. You can try again before the deadline.",
       "amount_mismatch": "We couldn't verify this payment, so it is being cancelled. Please contact us.",
-      "unknown_payment": "We couldn't find this payment. Please check your booking."
+      "unknown_payment": "We couldn't find this payment. Please check your booking.",
+      "refused": "This payment couldn't be applied to your booking, so it is being cancelled. We'll contact you."
     }
   }
 }

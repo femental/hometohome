@@ -21,6 +21,7 @@ export type PaymentItem = {
   fxRate: string | null;
   status: string;
   offlineNote: string | null;
+  pgTxId?: string | null;
   paidAt: Date | null;
   createdAt: Date;
   refunds: {
@@ -58,6 +59,7 @@ export function RefundList({ payments }: { payments: PaymentItem[] }) {
             <span className="text-xs text-zinc-500">{formatKST(p.paidAt ?? p.createdAt)}</span>
           </div>
           {p.offlineNote && <p className="mt-1 text-xs text-zinc-500">메모: {p.offlineNote}</p>}
+          {p.pgTxId && <p className="mt-1 break-all text-xs text-zinc-500">PG 거래 ID: {p.pgTxId}</p>}
 
           {p.refunds.length > 0 && (
             <ul className="mt-3 flex flex-col gap-2 border-t border-zinc-100 pt-3">

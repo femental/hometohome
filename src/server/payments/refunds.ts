@@ -12,7 +12,8 @@ export interface RefundDeps {
   now: Date;
 }
 
-export type RefundOutcome = "done" | "failed" | "skipped";
+/** `processing`: the PG accepted the cancellation but finishes it later (reconciled afterwards). */
+export type RefundOutcome = "done" | "failed" | "skipped" | "processing";
 
 const REASON_TEXT: Record<string, string> = {
   guest_cancel_full: "Guest cancellation (full refund)",
@@ -77,6 +78,11 @@ export async function executeRefund(
       currentCancellableAmount: charged - before,
     });
     if (res.status === "FAILED") throw new PortOneError("cancelPayment", "CANCELLATION_FAILED");
+    if (res.status === "REQUESTED") {
+      // Accepted but not final: stays `processing` until reconcileProcessingRefunds sees it at the PG.
+      await d.db.refund.update({ where: { id: refundId }, data: { pgRefundId: res.cancellationId } });
+      return "processing";
+    }
     return await record("done", res.cancellationId);
   } catch (e) {
     if (!(e instanceof PortOneError)) {
@@ -92,6 +98,42 @@ export async function executeRefund(
     console.error(`[payments] refund ${refundId} failed: ${e.message}`);
     return await record("failed");
   }
+}
+
+const RECONCILE_AFTER_MS = 10 * 60_000;
+
+/**
+ * Settles PG refunds left `processing` (asynchronous PG cancellations, or an executor that stopped
+ * mid-way): when the PG's cancelled total covers the row on top of our done ledger, the row is
+ * recorded done (+ payment status, guest `refund_completed`). Rows claimed in the last 10 minutes
+ * are left to their executor. Optionally limited to one payment (webhook).
+ */
+export async function reconcileProcessingRefunds(
+  d: RefundNoticeDeps,
+  opts: { paymentId?: string } = {},
+): Promise<{ done: number; stillPending: number }> {
+  const rows = await d.db.refund.findMany({
+    where: {
+      manual: false,
+      status: "processing",
+      ...(opts.paymentId ? { paymentId: opts.paymentId } : { createdAt: { lte: new Date(d.now.getTime() - RECONCILE_AFTER_MS) } }),
+    },
+    include: { payment: true },
+    take: 200,
+  });
+  let done = 0;
+  for (const r of rows) {
+    const pg = await d.pg.getPayment(r.paymentId).catch(() => null);
+    const before = await ledgerRefunded(d.db, r.paymentId, r.id);
+    if (!pg || pg.amount.cancelled - before < r.amountRefundedMinor) continue;
+    const { count } = await d.db.refund.updateMany({ where: { id: r.id, status: "processing" }, data: { status: "done" } });
+    if (count === 0) continue;
+    const fully = before + r.amountRefundedMinor >= r.payment.amountChargedMinor;
+    await d.db.payment.update({ where: { id: r.paymentId }, data: { status: fully ? "refunded" : "partially_refunded" } });
+    await sendRefundNotice(d, r.id, "completed");
+    done++;
+  }
+  return { done, stillPending: rows.length - done };
 }
 
 export interface RefundNoticeDeps extends RefundDeps {

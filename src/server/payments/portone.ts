@@ -106,6 +106,8 @@ export class FakePortOne implements PortOneClient {
   failNextCancel = false;
   /** Applies the next cancel at the "PG" but throws as if the response was lost on the way back. */
   loseNextCancelResponse = false;
+  /** Status the next successful cancel reports (REQUESTED = the PG finishes it asynchronously). */
+  nextCancelStatus: "SUCCEEDED" | "REQUESTED" = "SUCCEEDED";
 
   async getPayment(paymentId: string): Promise<PgPayment | null> {
     const p = this.payments.get(paymentId);
@@ -130,7 +132,9 @@ export class FakePortOne implements PortOneClient {
       this.loseNextCancelResponse = false;
       throw new PortOneError("cancelPayment", "NETWORK");
     }
-    return { status: "SUCCEEDED" as const, cancellationId: `fake-cancel-${this.cancelCalls.length}` };
+    const status = this.nextCancelStatus;
+    this.nextCancelStatus = "SUCCEEDED";
+    return { status, cancellationId: `fake-cancel-${this.cancelCalls.length}` };
   }
 }
 

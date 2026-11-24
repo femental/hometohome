@@ -13,7 +13,7 @@ import type { EmailSender } from "@/server/email/sender";
 import type { TemplateData, TemplateName } from "@/server/email/templates";
 import type { UsdKrwRate } from "@/server/fx/rates";
 import { verifyPortOneWebhook, type PortOneClient, type PortOneConfig } from "./portone";
-import { executeRefund, sendRefundNotice } from "./refunds";
+import { executeRefund, reconcileProcessingRefunds, sendRefundNotice } from "./refunds";
 
 export interface PayDeps {
   db: Db;
@@ -128,7 +128,8 @@ export type CompleteOutcome =
   | "duplicate_refunded"
   | "not_paid"
   | "amount_mismatch"
-  | "unknown_payment";
+  | "unknown_payment"
+  | "refused";
 
 // ---------------------------------------------------------------------------
 // Emails (after commit; failures never change the result)
@@ -204,16 +205,12 @@ export async function completePayment(
     }
     if (pg.amount.total !== row.amountChargedMinor || pg.currency !== row.currency) {
       await d.db.payment.update({ where: { id: paymentId }, data: { status: "failed", raw: pg.raw as Prisma.InputJsonValue } });
-      try {
-        await d.pg.cancelPayment(paymentId, {
-          amount: pg.amount.total - pg.amount.cancelled,
-          reason: "Amount does not match the booking",
-          currentCancellableAmount: pg.amount.total - pg.amount.cancelled,
-        });
-      } catch (e) {
-        console.error(`[payments] could not cancel mismatched payment ${paymentId}`, e);
-      }
-      console.error(`[payments] amount mismatch on ${paymentId}: PG ${pg.amount.total} ${pg.currency}, expected ${row.amountChargedMinor} ${row.currency}`);
+      await abortAtPg(
+        d,
+        paymentId,
+        bookingId,
+        `PG 금액 ${pg.amount.total} ${pg.currency} ≠ 예약 금액 ${row.amountChargedMinor} ${row.currency}`,
+      );
       return { outcome: "amount_mismatch", bookingId };
     }
     await d.db.payment.updateMany({
@@ -222,7 +219,17 @@ export async function completePayment(
     });
   }
 
-  const res = await confirmPaid(d.db, bookingId, paymentId, d.now);
+  let res: Awaited<ReturnType<typeof confirmPaid>>;
+  try {
+    res = await confirmPaid(d.db, bookingId, paymentId, d.now);
+  } catch (e) {
+    // Money was taken but the booking cannot accept it (e.g. its amount changed): give it back and
+    // alert the operators instead of letting the webhook retry forever.
+    if (!(e instanceof BookingError)) throw e;
+    await d.db.payment.update({ where: { id: paymentId }, data: { status: "failed" } });
+    await abortAtPg(d, paymentId, bookingId, `예약이 결제를 받을 수 없음 (${e.code})`);
+    return { outcome: "refused", bookingId };
+  }
   switch (res.result) {
     case "confirmed": {
       await notify(
@@ -257,6 +264,48 @@ export async function completePayment(
   }
 }
 
+/** Cancels whatever is still cancellable of a payment at the PG and alerts the operators. Never throws. */
+async function abortAtPg(d: PayDeps, paymentId: string, bookingId: string, reason: string): Promise<void> {
+  try {
+    const pg = await d.pg.getPayment(paymentId);
+    const left = pg ? pg.amount.total - pg.amount.cancelled : 0;
+    if (left > 0) {
+      await d.pg.cancelPayment(paymentId, { amount: left, reason: "Payment could not be applied to the booking", currentCancellableAmount: left });
+    }
+  } catch (e) {
+    console.error(`[payments] could not cancel payment ${paymentId} at the PG`, e);
+  }
+  console.error(`[payments] payment ${paymentId} aborted: ${reason}`);
+  await notify(d, bookingId, null, { template: "admin_payment_problem", extra: { reason } });
+}
+
+const STALE_PENDING_MS = 24 * 3600_000;
+
+/**
+ * Daily: checkouts left `pending` for 24 hours. One the PG shows PAID is completed normally (the
+ * guest paid but neither the redirect nor the webhook reached us); the rest are marked cancelled.
+ */
+export async function cleanupStalePayments(d: PayDeps): Promise<{ cancelled: number; completed: number }> {
+  const stale = await d.db.payment.findMany({
+    where: { status: "pending", method: { in: ["card", "paypal"] }, createdAt: { lte: new Date(d.now.getTime() - STALE_PENDING_MS) } },
+    select: { id: true },
+    take: 200,
+  });
+  let cancelled = 0;
+  let completed = 0;
+  for (const { id } of stale) {
+    const pg = await d.pg.getPayment(id).catch(() => null);
+    if (pg?.status === "PAID") {
+      await completePayment(d, id);
+      completed++;
+    } else {
+      const { count } = await d.db.payment.updateMany({ where: { id, status: "pending" }, data: { status: "cancelled" } });
+      cancelled += count;
+    }
+  }
+  return { cancelled, completed };
+}
+
 /** Transaction events whose payment state the server re-reads from the PG. */
 const SYNC_EVENTS = new Set(["Transaction.Paid", "Transaction.Failed", "Transaction.Cancelled", "Transaction.PartialCancelled"]);
 
@@ -271,6 +320,9 @@ export async function handlePortOneWebhook(d: PayDeps, secret: string, rawBody: 
   if (!hook.paymentId || !SYNC_EVENTS.has(hook.type)) return 200;
   try {
     await completePayment(d, hook.paymentId);
+    if (hook.type === "Transaction.Cancelled" || hook.type === "Transaction.PartialCancelled") {
+      await reconcileProcessingRefunds(d, { paymentId: hook.paymentId });
+    }
     return 200;
   } catch (e) {
     console.error(`[payments] webhook ${hook.type} for ${hook.paymentId} failed`, e);
