@@ -18,7 +18,8 @@ export type TemplateName =
   | "late_payment_refund"
   | "admin_late_payment_refund"
   | "refund_completed"
-  | "admin_refund_failed";
+  | "admin_refund_failed"
+  | "payment_reminder";
 
 export interface TemplateData {
   guestName: string;
@@ -150,6 +151,27 @@ const TEMPLATES: Record<TemplateName, Template> = {
         `${v.guest}님, 안녕하세요.`,
         `${v.place} (${v.stay}) 예약 신청이 기한 내 검토되지 않아 만료되었습니다. 결제된 금액은 없습니다.`,
         "계속 원하시면 새로 신청해 주세요.",
+      ],
+    }),
+  },
+  payment_reminder: {
+    need: ["firstPaymentTotal", "holdExpiresAt", "payUrl"],
+    en: (v) => ({
+      subject: `Reminder: pay by ${v.deadline} to keep your room`,
+      lines: [
+        `Hi ${v.guest},`,
+        `Your room at ${v.place} (${v.stay}) is held until ${v.deadline}. Amount due: ${v.total}.`,
+        "If we don't receive the payment by then, the hold is released.",
+        link("Pay now", v.payUrl),
+      ],
+    }),
+    ko: (v) => ({
+      subject: `결제 마감 알림 – ${v.deadline}까지 결제해 주세요`,
+      lines: [
+        `${v.guest}님, 안녕하세요.`,
+        `${v.place} (${v.stay}) 방은 ${v.deadline}까지 확보되어 있습니다. 결제 금액: ${v.total}.`,
+        "그때까지 결제가 확인되지 않으면 방 확보가 해제됩니다.",
+        link("지금 결제하기", v.payUrl),
       ],
     }),
   },

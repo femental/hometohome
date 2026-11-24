@@ -240,6 +240,11 @@ model Booking {
   depositReturnedAt DateTime? @map("deposit_returned_at") @db.Timestamptz(3)
   depositReturnNote String?   @map("deposit_return_note")
 
+  /// Set when the "payment deadline in 3 hours" reminder was claimed (sent at most once).
+  paymentReminderSentAt DateTime? @map("payment_reminder_sent_at") @db.Timestamptz(3)
+  /// Set when the request/payment expiry notice was claimed (sent at most once).
+  expiryNoticeSentAt    DateTime? @map("expiry_notice_sent_at") @db.Timestamptz(3)
+
   /// The payment that confirmed this booking (text, like Payment.id). Makes confirmation idempotent.
   confirmedPaymentId String? @unique @map("confirmed_payment_id")
 
