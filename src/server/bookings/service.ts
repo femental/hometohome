@@ -12,6 +12,7 @@ import { decideRefund, type RefundDecision } from "@/domain/refund";
 import type { Db } from "@/server/db";
 import { fromDbDate, isRoomFree, toDbDate } from "./availability";
 import { BookingError, isExclusionViolation, type BookingErrorCode } from "./errors";
+import { withSerializationRetry } from "./retry";
 
 // Services never send email or call the PG: they report what happened and the caller
 // (notifications in phase 2, PortOne in phase 4) acts on it.
@@ -60,16 +61,20 @@ async function withLockedBooking<T>(
   now: Date,
   fn: (tx: Tx, booking: Booking) => Promise<T | Refusal>,
 ): Promise<T> {
-  const out = await inTransaction(db, async (tx) => {
-    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
-    if (locked.length === 0) return refuse("INVALID_STATE", "booking not found");
-    let booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
-    const current = effectiveStatus(booking, now);
-    if (current !== booking.status) {
-      booking = await tx.booking.update({ where: { id: bookingId }, data: { status: current } });
-    }
-    return fn(tx, booking);
-  });
+  const run = () =>
+    inTransaction(db, async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+      if (locked.length === 0) return refuse("NOT_FOUND", "booking not found");
+      let booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
+      const current = effectiveStatus(booking, now);
+      if (current !== booking.status) {
+        booking = await tx.booking.update({ where: { id: bookingId }, data: { status: current } });
+      }
+      return fn(tx, booking);
+    });
+  // Only a top-level client owns its transaction and can retry it; inside a caller's transaction
+  // a deadlock aborts the caller's work too, so it propagates.
+  const out = "$connect" in db ? await withSerializationRetry(run) : await run();
   if (out instanceof Refusal) throw out.error;
   return out;
 }
@@ -306,7 +311,7 @@ export function confirmPaid(db: Db, bookingId: string, paymentId: string, now: D
 
     if (payment.status !== "paid") return refuse("INVALID_STATE", `payment is ${payment.status}`);
     if (payment.amountKrw !== b.firstPaymentTotal) {
-      return refuse("INVALID_STATE", `payment amount ${payment.amountKrw} != ${b.firstPaymentTotal}`);
+      return refuse("AMOUNT_MISMATCH", `payment amount ${payment.amountKrw} != ${b.firstPaymentTotal}`);
     }
 
     switch (b.status) {
@@ -334,7 +339,7 @@ export function confirmOfflinePayment(
   return withLockedBooking(db, bookingId, now, async (tx, b) => {
     if (b.status !== "awaiting_payment") return invalidState(b);
     if (p.amountKrw !== b.firstPaymentTotal) {
-      return refuse("INVALID_STATE", `payment amount ${p.amountKrw} != ${b.firstPaymentTotal}`);
+      return refuse("AMOUNT_MISMATCH", `payment amount ${p.amountKrw} != ${b.firstPaymentTotal}`);
     }
     const payment = await tx.payment.create({
       data: {
@@ -371,6 +376,7 @@ export function cancelBooking(
   bookingId: string,
   actor: CancelActor,
   now: Date,
+  opts: { expectedKind?: "full" | "deposit_only" } = {},
 ): Promise<{ booking: Booking; refund: RefundDecision; refundIds: string[] }> {
   return withLockedBooking(db, bookingId, now, async (tx, b) => {
     if (actor.kind === "guest" && b.guestId !== actor.userId) return refuse("FORBIDDEN");
@@ -386,9 +392,13 @@ export function cancelBooking(
         actor: actor.kind,
       });
       if (refund.kind === "not_allowed") return refuse("CANCEL_NOT_ALLOWED");
+      // Decided under the row lock with the same `now`, so what the caller confirmed is what gets refunded.
+      if (opts.expectedKind && refund.kind !== opts.expectedKind) return refuse("REFUND_CHANGED");
 
       if (!b.confirmedPaymentId) return refuse("INVALID_STATE", "confirmed booking has no confirming payment");
       const payment = await tx.payment.findUniqueOrThrow({ where: { id: b.confirmedPaymentId } });
+      // A payment the PG already refunded (fully or partly) must not get a second cancellation refund.
+      if (payment.status !== "paid") return refuse("INVALID_STATE", `confirming payment is ${payment.status}`);
       const row = await tx.refund.create({
         data: {
           paymentId: payment.id,

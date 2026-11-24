@@ -23,12 +23,17 @@ export function formatKRW(n: number): string {
 }
 
 /** An amount in minor units of its currency: KRW `₩1,300,000`, USD `$123.45`. */
+/** Decimal places of each currency's minor unit (the app stores amounts as integers in minor units). */
+const MINOR_DIGITS: Record<string, number> = { KRW: 0, USD: 2 };
+
 export function formatMinor(currency: string, minor: number): string {
-  if (currency === "KRW") return formatKRW(minor);
+  const digits = MINOR_DIGITS[currency];
+  if (digits === undefined) throw new Error(`formatMinor: unsupported currency ${currency}`);
+  if (digits === 0) return formatKRW(minor);
   const sign = minor < 0 ? "-" : "";
   const abs = Math.abs(Math.round(minor));
   const units = `${groupDigits(Math.floor(abs / 100))}.${pad(abs % 100)}`;
-  return currency === "USD" ? `${sign}$${units}` : `${sign}${units} ${currency}`;
+  return `${sign}$${units}`;
 }
 
 /** Time left until `deadline`, for admin screens: `23시간 남음`, `40분 남음`, `기한 지남`. */

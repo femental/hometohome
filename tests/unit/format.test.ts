@@ -46,6 +46,10 @@ test("formatMinor: KRW in won, USD minor units as dollars", () => {
   expect(formatMinor("USD", 5)).toBe("$0.05");
 });
 
+test("formatMinor: unknown currency throws instead of guessing decimals", () => {
+  expect(() => formatMinor("JPY", 100)).toThrow(/JPY/);
+});
+
 test("formatRemainingKo: hours, then minutes, then expired", () => {
   const now = new Date("2027-03-01T00:00:00Z");
   const at = (ms: number) => new Date(now.getTime() + ms);

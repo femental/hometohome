@@ -165,6 +165,11 @@ describe("booking error messages", () => {
   });
 
   test("a missing booking reads as not found, not as a state problem", () => {
-    expect(knownErrorMessage(new BookingError("INVALID_STATE", "booking not found"))).toMatch(/찾을 수 없습니다/);
+    expect(knownErrorMessage(new BookingError("NOT_FOUND"))).toBe("예약을 찾을 수 없습니다");
+  });
+
+  test("an amount mismatch has its own wording, keyed by code", () => {
+    expect(knownErrorMessage(new BookingError("AMOUNT_MISMATCH"))).toBe("받은 금액이 첫 결제 금액과 다릅니다");
+    expect(BOOKING_ERROR_MESSAGES.REFUND_CHANGED).toMatch(/환불/);
   });
 });

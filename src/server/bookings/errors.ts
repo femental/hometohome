@@ -10,6 +10,9 @@ export const BOOKING_ERROR_CODES = [
   "INVALID_STATE",
   "FORBIDDEN",
   "CANCEL_NOT_ALLOWED",
+  "NOT_FOUND",
+  "AMOUNT_MISMATCH",
+  "REFUND_CHANGED",
 ] as const;
 
 export type BookingErrorCode = (typeof BOOKING_ERROR_CODES)[number];

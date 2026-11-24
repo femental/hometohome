@@ -3,16 +3,11 @@ import { BOOKING_ERROR_CODES, BookingError, type BookingErrorCode } from "@/serv
 // Not server-only: guest forms import the key mapping to show the localized message.
 
 /** What guest actions return on failure; shown through `errors.*` messages, never as the raw code. */
-export type GuestErrorKey = BookingErrorCode | "VALIDATION" | "NOT_FOUND" | "REFUND_CHANGED";
+export type GuestErrorKey = BookingErrorCode | "VALIDATION";
 
-export const GUEST_ERROR_KEYS: readonly GuestErrorKey[] = [
-  ...BOOKING_ERROR_CODES,
-  "VALIDATION",
-  "NOT_FOUND",
-  "REFUND_CHANGED",
-];
+export const GUEST_ERROR_KEYS: readonly GuestErrorKey[] = [...BOOKING_ERROR_CODES, "VALIDATION"];
 
-/** A guest-only refusal that is not a booking-domain rule (e.g. the refund changed since the preview). */
+/** A guest-only refusal that is not a booking-domain rule. */
 export class GuestError extends Error {
   constructor(public readonly code: GuestErrorKey) {
     super(code);

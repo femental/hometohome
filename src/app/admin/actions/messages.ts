@@ -32,17 +32,14 @@ export const BOOKING_ERROR_MESSAGES: Record<BookingErrorCode, string> = {
   INVALID_STATE: "현재 상태에서는 할 수 없는 작업입니다",
   FORBIDDEN: "이 예약에 대한 권한이 없습니다",
   CANCEL_NOT_ALLOWED: "입주일 이후에는 온라인 취소가 불가합니다",
+  NOT_FOUND: "예약을 찾을 수 없습니다",
+  AMOUNT_MISMATCH: "받은 금액이 첫 결제 금액과 다릅니다",
+  REFUND_CHANGED: "환불 금액이 바뀌었습니다. 새 금액을 확인한 뒤 다시 취소해 주세요.",
 };
 
-export const BOOKING_NOT_FOUND = "예약을 찾을 수 없습니다";
-const OFFLINE_AMOUNT_MISMATCH = "받은 금액이 첫 결제 금액과 다릅니다";
+export const BOOKING_NOT_FOUND = BOOKING_ERROR_MESSAGES.NOT_FOUND;
 
-/** The services report a few specific failures as INVALID_STATE with a detail; those get their own wording. */
 function bookingErrorMessage(e: BookingError): string {
-  if (e.code === "INVALID_STATE") {
-    if (e.detail === "booking not found") return BOOKING_NOT_FOUND;
-    if (e.detail?.startsWith("payment amount")) return OFFLINE_AMOUNT_MISMATCH;
-  }
   return BOOKING_ERROR_MESSAGES[e.code];
 }
 

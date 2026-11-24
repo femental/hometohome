@@ -6,7 +6,7 @@ import { addDays, type ISODate } from "@/domain/dates";
 import { cancellationDeadline } from "@/domain/refund";
 import type { Locale } from "@/i18n/routing";
 import { pickText } from "@/lib/i18n-text";
-import { previewCancellation, type CancellationPreview } from "@/server/admin/bookings";
+import { previewCancellation, type CancellationPreview } from "@/server/bookings/refunds";
 import { fromDbDate } from "@/server/bookings/availability";
 import { BookingError } from "@/server/bookings/errors";
 import { cancelBooking, withdrawRequest } from "@/server/bookings/service";
@@ -213,10 +213,8 @@ export type ExpectedRefundKind = "full" | "deposit_only";
  * on the confirming payment), then emails the guest (`booking_cancelled`, their locale) and every
  * operator (`admin_booking_cancelled`, Korean). Email problems are logged and never change the result.
  *
- * `expectedKind` is the refund the guest saw and confirmed. If the rules give a different one at
- * `deps.now` (e.g. the full-refund deadline passed since the preview), it refuses with GuestError
- * REFUND_CHANGED before any write. The decision depends only on `deps.now` and fields a cancellation
- * cannot race with (move-in, amounts), so `cancelBooking` with the same `now` decides the same.
+ * `expectedKind` is the refund the guest saw and confirmed. `cancelBooking` compares it under the
+ * booking row lock and refuses with REFUND_CHANGED (nothing written) if the rules now give another one.
  */
 export async function guestCancel(
   deps: GuestBookingDeps,
@@ -227,16 +225,7 @@ export async function guestCancel(
   await assertOwn(deps.db, userId, id);
   const actor = { kind: "guest", userId } as const;
 
-  let current: CancellationPreview["kind"] | null = null;
-  try {
-    current = (await previewCancellation(deps.db, id, actor, deps.now)).kind;
-  } catch (e) {
-    // Not cancellable at all (not confirmed, move-in day…): cancelBooking reports it with its own code.
-    if (!(e instanceof BookingError)) throw e;
-  }
-  if (current !== null && current !== expectedKind) throw new GuestError("REFUND_CHANGED");
-
-  const { refund } = await cancelBooking(deps.db, id, actor, deps.now);
+  const { refund } = await cancelBooking(deps.db, id, actor, deps.now, { expectedKind });
 
   try {
     const b = await deps.db.booking.findUniqueOrThrow({

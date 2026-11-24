@@ -15,9 +15,9 @@ import {
   getBookingDetail,
   listBookings,
   listRequests,
-  previewCancellation,
   type Deps,
 } from "@/server/admin/bookings";
+import { previewCancellation } from "@/server/bookings/refunds";
 import { makeBooking, makeGuest, makeRoom, resetDb } from "./factories";
 
 beforeEach(() => resetDb());
@@ -174,7 +174,7 @@ describe("offline confirmation", () => {
     const d = deps();
     await expect(
       adminConfirmOffline(d, a.booking.id, { method: "cash", amountKrw: 1, note: "" }),
-    ).rejects.toMatchObject({ code: "INVALID_STATE" });
+    ).rejects.toMatchObject({ code: "AMOUNT_MISMATCH" });
     expect(d.email.sent).toHaveLength(0);
   });
 });

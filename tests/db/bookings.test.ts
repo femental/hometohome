@@ -501,7 +501,7 @@ describe("payment", () => {
     const b = await requestOn(room);
     await approveRequest(prisma, b.id, now);
     const wrongAmount = await paidCardPayment(b, { amountKrw: 1_000_000, amountChargedMinor: 1_000_000 });
-    await expectBookingError(confirmPaid(prisma, b.id, wrongAmount.id, now), "INVALID_STATE");
+    await expectBookingError(confirmPaid(prisma, b.id, wrongAmount.id, now), "AMOUNT_MISMATCH");
     const pending = await prisma.payment.create({
       data: { bookingId: b.id, method: "card", amountKrw: 1_300_000, amountChargedMinor: 1_300_000, status: "pending" },
     });
@@ -519,7 +519,7 @@ describe("payment", () => {
     await approveRequest(prisma, a.id, now);
     await expectBookingError(
       confirmOfflinePayment(prisma, a.id, { method: "bank_transfer", amountKrw: 1_299_999, note: "short" }, now),
-      "INVALID_STATE",
+      "AMOUNT_MISMATCH",
     );
     const res = await confirmOfflinePayment(
       prisma,
@@ -612,6 +612,27 @@ describe("cancel", () => {
     );
     expect((await prisma.booking.findUniqueOrThrow({ where: { id: b3.id } })).status).toBe("confirmed");
     expect(await prisma.refund.count({ where: { payment: { bookingId: b3.id } } })).toBe(0);
+  });
+
+  test("cancel with expectedKind full after deadline → REFUND_CHANGED inside lock, nothing written", async () => {
+    const b = await confirmedBooking(await makeRoom(prisma));
+    const guest = { kind: "guest" as const, userId: b.guestId };
+    await expectBookingError(
+      cancelBooking(prisma, b.id, guest, at("2027-03-08T15:00:00Z"), { expectedKind: "full" }),
+      "REFUND_CHANGED",
+    );
+    expect((await prisma.booking.findUniqueOrThrow({ where: { id: b.id } })).status).toBe("confirmed");
+    expect(await prisma.refund.count({ where: { payment: { bookingId: b.id } } })).toBe(0);
+
+    const ok = await cancelBooking(prisma, b.id, guest, at("2027-03-08T15:00:00Z"), { expectedKind: "deposit_only" });
+    expect(ok.refund.kind).toBe("deposit_only");
+  });
+
+  test("cancel when the confirming payment is no longer paid → INVALID_STATE, no new refund", async () => {
+    const b = await confirmedBooking(await makeRoom(prisma));
+    await prisma.payment.update({ where: { id: b.confirmedPaymentId! }, data: { status: "refunded" } });
+    await expectBookingError(cancelBooking(prisma, b.id, { kind: "admin" }, at("2027-03-05T00:00:00Z")), "INVALID_STATE");
+    expect(await prisma.refund.count({ where: { payment: { bookingId: b.id } } })).toBe(0);
   });
 
   test("admin cancel of a confirmed booking refunds in full", async () => {
