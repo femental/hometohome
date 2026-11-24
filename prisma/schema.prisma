@@ -71,6 +71,8 @@ enum RefundReason {
 
 enum RefundStatus {
   pending
+  /// Claimed by an executor; the PG call is in flight (or the executor crashed — operator retry).
+  processing
   done
   failed
 }

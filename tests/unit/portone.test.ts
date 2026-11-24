@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { describe, expect, test, vi } from "vitest";
 import { Payment } from "@portone/server-sdk";
-import { createPortOneClient, FakePortOne, verifyPortOneWebhook, PortOneError } from "@/server/payments/portone";
+import { createPortOneClient, FakePortOne, portOneConfig, verifyPortOneWebhook, PortOneError } from "@/server/payments/portone";
 
 const paid = (o: Record<string, unknown> = {}) => ({
   status: "PAID",
@@ -74,6 +74,14 @@ describe("FakePortOne", () => {
     await pg.cancelPayment("p", { amount: 400, reason: "x", currentCancellableAmount: 1000 });
     expect(pg.payments.get("p")).toMatchObject({ status: "PARTIAL_CANCELLED", amount: { total: 1000, cancelled: 400 } });
     expect(pg.cancelCalls).toHaveLength(1);
+  });
+});
+
+describe("portOneConfig fake mode", () => {
+  test("only outside production and only without a real API secret", () => {
+    expect(portOneConfig({ PORTONE_FAKE: "1", NODE_ENV: "development" }).fake).toBe(true);
+    expect(portOneConfig({ PORTONE_FAKE: "1", NODE_ENV: "production" }).fake).toBe(false);
+    expect(portOneConfig({ PORTONE_FAKE: "1", NODE_ENV: "development", PORTONE_API_SECRET: "real" }).fake).toBe(false);
   });
 });
 

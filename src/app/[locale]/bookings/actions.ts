@@ -86,8 +86,9 @@ export async function cancelAction(
     return { ok: false, error };
   }
   // The cancellation is committed; card/PayPal refunds go to the PG now (a failure alerts the operator).
+  // If running the refund throws, the cancellation still stands; the row waits for an operator retry.
   const pd = payDeps();
-  if (pd) await runRefunds(pd, refundIds);
+  if (pd) await runRefunds(pd, refundIds).catch((e) => console.error("[guest] refund execution failed", e));
   revalidateBookings();
   return { ok: true, refundKrw };
 }

@@ -79,6 +79,31 @@ test("PG failure → refund failed + admin_refund_failed; a retry then succeeds 
   expect(d.pg.cancelCalls).toHaveLength(1);
 });
 
+test("PG cancelled but the response was lost → retry does not refund twice and records done", async () => {
+  const d = deps();
+  const { booking, payment, guest } = await paidBooking(d);
+  const after = new Date("2027-03-09T03:00:00Z"); // deposit only: a partial cancel the PG would accept twice
+  const { refundIds } = await cancelBooking(prisma, booking.id, { kind: "guest", userId: guest.id }, after);
+  d.pg.loseNextCancelResponse = true;
+  expect(await runRefunds({ ...d, now: after }, refundIds)).toEqual(["failed"]);
+  expect(d.pg.payments.get(payment.id)?.amount.cancelled).toBe(500_000); // the PG did cancel
+
+  expect(await runRefunds({ ...d, now: after }, refundIds)).toEqual(["done"]);
+  expect(d.pg.payments.get(payment.id)?.amount.cancelled).toBe(500_000); // not cancelled again
+  expect(await prisma.refund.findUniqueOrThrow({ where: { id: refundIds[0] } })).toMatchObject({ status: "done" });
+  expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe("partially_refunded");
+});
+
+test("a refund stuck in processing (crash after claim) can be retried safely", async () => {
+  const d = deps();
+  const { booking } = await paidBooking(d);
+  const { refundIds } = await cancelBooking(prisma, booking.id, { kind: "admin" }, now);
+  await prisma.refund.update({ where: { id: refundIds[0] }, data: { status: "processing" } });
+  expect(await executeRefund(d, refundIds[0])).toBe("skipped"); // automatic runs leave it alone
+  expect(await executeRefund(d, refundIds[0], { includeStuck: true })).toBe("done"); // operator retry
+  expect(d.pg.cancelCalls).toHaveLength(1);
+});
+
 test("dashboard counts PG refunds that failed", async () => {
   const d = deps();
   const { booking } = await paidBooking(d);

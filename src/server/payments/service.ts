@@ -13,7 +13,7 @@ import type { EmailSender } from "@/server/email/sender";
 import type { TemplateData, TemplateName } from "@/server/email/templates";
 import type { UsdKrwRate } from "@/server/fx/rates";
 import { verifyPortOneWebhook, type PortOneClient, type PortOneConfig } from "./portone";
-import { executeRefund } from "./refunds";
+import { executeRefund, sendRefundNotice } from "./refunds";
 
 export interface PayDeps {
   db: Db;
@@ -249,6 +249,8 @@ export async function completePayment(
           { template: "late_payment_refund", extra: () => ({ refundKrw: refund.amountKrw }) },
           { template: "admin_late_payment_refund", extra: { refundKrw: refund.amountKrw } },
         );
+      } else if (executed === "failed") {
+        await sendRefundNotice(d, res.refundId, "failed");
       }
       return { outcome: res.result === "late_payment" ? "late_refunded" : "duplicate_refunded", bookingId };
     }

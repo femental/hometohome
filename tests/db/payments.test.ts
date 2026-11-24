@@ -163,6 +163,18 @@ describe("completePayment", () => {
     expect(templates).toEqual(["admin_late_payment_refund", "late_payment_refund"]);
   });
 
+  test("late payment whose auto refund fails at the PG → operators get admin_refund_failed", async () => {
+    const d = deps();
+    const { guest, booking } = await awaitingBooking();
+    const p = await preparePayment(d, guest.id, booking.id, "card", "en");
+    pgPaid(d, p);
+    d.pg.failNextCancel = true;
+    const late = deps({ pg: d.pg, email: d.email, now: new Date(now.getTime() + 21 * HOUR) });
+    expect((await completePayment(late, p.paymentId)).outcome).toBe("late_refunded");
+    expect((await prisma.refund.findFirstOrThrow({ where: { paymentId: p.paymentId } })).status).toBe("failed");
+    expect((await prisma.emailLog.findMany()).map((e) => e.template)).toEqual(["admin_refund_failed"]);
+  });
+
   test("second payment on a confirmed booking → duplicate_refunded", async () => {
     const d = deps();
     const { guest, booking } = await awaitingBooking();

@@ -134,8 +134,9 @@ export async function cancelAction(bookingId: string): Promise<ActionResult> {
   return run(id.data, async (b) => {
     const { refundIds } = await adminCancel(deps(), b);
     // Card/PayPal refunds go to the PG right away; if no PG is configured they stay pending for a retry.
+    // The cancellation has committed; a refund failure here must not report the cancel as failed.
     const pd = payDeps();
-    if (pd) await runRefunds(pd, refundIds);
+    if (pd) await runRefunds(pd, refundIds).catch((e) => console.error("[admin] refund execution failed", e));
   });
 }
 
@@ -158,7 +159,7 @@ export async function retryRefundAction(refundId: string): Promise<ActionResult>
   if (!id.success) return notFound;
   const pd = payDeps();
   if (!pd) return { ok: false, error: "결제 대행사(PortOne) 설정이 없어 환불을 실행할 수 없습니다." };
-  const [outcome] = await runRefunds(pd, [id.data]);
+  const [outcome] = await runRefunds(pd, [id.data], { includeStuck: true });
   const refund = await prisma.refund.findUnique({ where: { id: id.data }, select: { payment: { select: { bookingId: true } } } });
   if (refund) revalidateBooking(refund.payment.bookingId);
   if (outcome === "failed") return { ok: false, error: "PG 환불이 다시 실패했습니다. 잠시 후 다시 시도해 주세요." };

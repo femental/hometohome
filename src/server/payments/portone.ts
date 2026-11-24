@@ -104,6 +104,8 @@ export class FakePortOne implements PortOneClient {
   payments = new Map<string, PgPayment>();
   cancelCalls: { paymentId: string; amount: number; reason: string }[] = [];
   failNextCancel = false;
+  /** Applies the next cancel at the "PG" but throws as if the response was lost on the way back. */
+  loseNextCancelResponse = false;
 
   async getPayment(paymentId: string): Promise<PgPayment | null> {
     const p = this.payments.get(paymentId);
@@ -124,6 +126,10 @@ export class FakePortOne implements PortOneClient {
     this.cancelCalls.push({ paymentId, amount: a.amount, reason: a.reason });
     p.amount.cancelled += a.amount;
     p.status = p.amount.cancelled === p.amount.total ? "CANCELLED" : "PARTIAL_CANCELLED";
+    if (this.loseNextCancelResponse) {
+      this.loseNextCancelResponse = false;
+      throw new PortOneError("cancelPayment", "NETWORK");
+    }
     return { status: "SUCCEEDED" as const, cancellationId: `fake-cancel-${this.cancelCalls.length}` };
   }
 }
@@ -165,7 +171,8 @@ export function portOneConfig(env: Record<string, string | undefined> = process.
     channelKeyPaypal: blank(env.NEXT_PUBLIC_PORTONE_CHANNEL_KEY_PAYPAL),
     apiSecret: blank(env.PORTONE_API_SECRET),
     webhookSecret: blank(env.PORTONE_WEBHOOK_SECRET),
-    fake: env.PORTONE_FAKE === "1" && env.NODE_ENV !== "production",
+    // Never fake when a real secret is configured, so a mis-set NODE_ENV cannot confirm unpaid bookings.
+    fake: env.PORTONE_FAKE === "1" && env.NODE_ENV !== "production" && !blank(env.PORTONE_API_SECRET),
   };
 }
 

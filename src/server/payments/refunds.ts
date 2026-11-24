@@ -22,47 +22,76 @@ const REASON_TEXT: Record<string, string> = {
   duplicate_payment_auto: "Duplicate payment",
 };
 
+/** Minor units of the payment our ledger says the PG has already refunded (done PG rows, excluding `exceptId`). */
+async function ledgerRefunded(db: Db, paymentId: string, exceptId: string): Promise<number> {
+  const agg = await db.refund.aggregate({
+    where: { paymentId, manual: false, status: "done", id: { not: exceptId } },
+    _sum: { amountRefundedMinor: true },
+  });
+  return agg._sum.amountRefundedMinor ?? 0;
+}
+
 /**
  * Executes one PG refund row: cancels `amountRefundedMinor` at PortOne for the row's payment and
- * marks the row done (payment → refunded / partially_refunded) or failed. Runs under a `FOR UPDATE`
- * lock on the refund row, so concurrent calls cancel at most once; `skipped` for manual (offline)
- * rows and rows already done. A failed row can be executed again (operator retry).
+ * marks the row done (payment → refunded / partially_refunded) or failed.
+ *
+ * No DB transaction is held across the PG call: the row is first claimed (`pending|failed →
+ * processing`, conditional update, so concurrent callers cancel at most once), then the PG is
+ * called, then the outcome is recorded. The balance sent as PortOne's `currentCancellableAmount`
+ * guard comes from our own ledger (charged − done PG refunds), never from a fresh PG read: if a
+ * previous attempt's cancel reached the PG but its response was lost, the PG's balance no longer
+ * matches, PortOne refuses the duplicate, and the row is reconciled against the PG's cancelled total.
+ *
+ * `skipped` for manual (offline) rows, rows already done, and rows another executor holds.
+ * `includeStuck` (operator retry) also re-runs a row left in `processing` by a crashed executor;
+ * the ledger guard keeps that safe.
  */
-export async function executeRefund(d: RefundDeps, refundId: string): Promise<RefundOutcome> {
-  return d.db.$transaction(
-    async (tx) => {
-      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM refunds WHERE id = ${refundId} FOR UPDATE`;
-      if (locked.length === 0) return "skipped";
-      const refund = await tx.refund.findUniqueOrThrow({ where: { id: refundId }, include: { payment: true } });
-      if (refund.manual || refund.status === "done") return "skipped";
+export async function executeRefund(
+  d: RefundDeps,
+  refundId: string,
+  opts: { includeStuck?: boolean } = {},
+): Promise<RefundOutcome> {
+  const claimable = opts.includeStuck ? (["pending", "failed", "processing"] as const) : (["pending", "failed"] as const);
+  const claimed = await d.db.refund.updateMany({
+    where: { id: refundId, manual: false, status: { in: [...claimable] } },
+    data: { status: "processing" },
+  });
+  if (claimed.count === 0) return "skipped";
+  const refund = await d.db.refund.findUniqueOrThrow({ where: { id: refundId }, include: { payment: true } });
+  const charged = refund.payment.amountChargedMinor;
+  const before = await ledgerRefunded(d.db, refund.paymentId, refundId);
 
-      try {
-        const pg = await d.pg.getPayment(refund.paymentId);
-        if (!pg) throw new PortOneError("getPayment", "PAYMENT_NOT_FOUND");
-        const cancellable = pg.amount.total - pg.amount.cancelled;
-        const res = await d.pg.cancelPayment(refund.paymentId, {
-          amount: refund.amountRefundedMinor,
-          reason: REASON_TEXT[refund.reason] ?? refund.reason,
-          currentCancellableAmount: cancellable,
-        });
-        if (res.status === "FAILED") throw new PortOneError("cancelPayment", "CANCELLATION_FAILED");
+  const record = async (status: "done" | "failed", pgRefundId?: string) => {
+    await d.db.refund.update({ where: { id: refundId }, data: { status, ...(pgRefundId ? { pgRefundId } : {}) } });
+    if (status === "done") {
+      const fully = before + refund.amountRefundedMinor >= charged;
+      await d.db.payment.update({ where: { id: refund.paymentId }, data: { status: fully ? "refunded" : "partially_refunded" } });
+    }
+    return status;
+  };
 
-        await tx.refund.update({ where: { id: refundId }, data: { status: "done", pgRefundId: res.cancellationId } });
-        const fully = refund.amountRefundedMinor >= cancellable;
-        await tx.payment.update({
-          where: { id: refund.paymentId },
-          data: { status: fully ? "refunded" : "partially_refunded" },
-        });
-        return "done";
-      } catch (e) {
-        if (!(e instanceof PortOneError)) throw e;
-        console.error(`[payments] refund ${refundId} failed: ${e.message}`);
-        await tx.refund.update({ where: { id: refundId }, data: { status: "failed" } });
-        return "failed";
-      }
-    },
-    { timeout: 30_000 },
-  );
+  try {
+    const res = await d.pg.cancelPayment(refund.paymentId, {
+      amount: refund.amountRefundedMinor,
+      reason: REASON_TEXT[refund.reason] ?? refund.reason,
+      currentCancellableAmount: charged - before,
+    });
+    if (res.status === "FAILED") throw new PortOneError("cancelPayment", "CANCELLATION_FAILED");
+    return await record("done", res.cancellationId);
+  } catch (e) {
+    if (!(e instanceof PortOneError)) {
+      // Unknown outcome (e.g. DB error after the PG call): leave it `processing` for an operator retry.
+      console.error(`[payments] refund ${refundId} interrupted`, e);
+      throw e;
+    }
+    if (e.kind === "CANCELLABLE_AMOUNT_CONSISTENCY_BROKEN" || e.kind === "PAYMENT_ALREADY_CANCELLED") {
+      // Our ledger and the PG disagree: was this very refund already applied by a lost attempt?
+      const pg = await d.pg.getPayment(refund.paymentId).catch(() => null);
+      if (pg && pg.amount.cancelled - before >= refund.amountRefundedMinor) return await record("done");
+    }
+    console.error(`[payments] refund ${refundId} failed: ${e.message}`);
+    return await record("failed");
+  }
 }
 
 export interface RefundNoticeDeps extends RefundDeps {
@@ -124,10 +153,14 @@ export async function sendRefundNotice(
  * guest `refund_completed` on success, operators `admin_refund_failed` on failure. Manual rows are
  * skipped (the operator pays them out and marks them done).
  */
-export async function runRefunds(d: RefundNoticeDeps, refundIds: string[]): Promise<RefundOutcome[]> {
+export async function runRefunds(
+  d: RefundNoticeDeps,
+  refundIds: string[],
+  opts: { includeStuck?: boolean } = {},
+): Promise<RefundOutcome[]> {
   const out: RefundOutcome[] = [];
   for (const id of refundIds) {
-    const res = await executeRefund(d, id);
+    const res = await executeRefund(d, id, opts);
     if (res === "done") await sendRefundNotice(d, id, "completed");
     if (res === "failed") await sendRefundNotice(d, id, "failed");
     out.push(res);
