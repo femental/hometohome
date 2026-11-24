@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 /**
  * `<html>` + `<body>` for each top-level segment. The root layout (`app/layout.tsx`) only passes
  * children through, so the guest `[locale]` layout can set `<html lang>` per locale while /admin,
- * /login and the root error pages render their own document.
+ * the root error pages render their own document (/login is only a route handler).
  */
 export function HtmlDocument({ lang, children }: { lang: string; children: ReactNode }) {
   return (

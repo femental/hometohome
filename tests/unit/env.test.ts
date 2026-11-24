@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { parseBankTransferInfo, parseServerEnv } from "@/server/env";
+import { parseAppUrl, parseBankTransferInfo, parseServerEnv } from "@/server/env";
 
 const validEnv = {
   DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
@@ -46,4 +46,10 @@ test("bank-transfer info is optional, multi-line, and blank means unset", () => 
   // Read on its own: no server secrets needed.
   expect(() => parseBankTransferInfo({ BANK_TRANSFER_INFO_EN: "x" })).not.toThrow();
   expect(parseServerEnv({ ...validEnv, BANK_TRANSFER_INFO_KO: "신한" }).BANK_TRANSFER_INFO_KO).toBe("신한");
+});
+
+test("parseAppUrl reads only APP_URL and omits missing or invalid values", () => {
+  expect(parseAppUrl({ APP_URL: " https://hometohome.example " })?.origin).toBe("https://hometohome.example");
+  expect(parseAppUrl({})).toBeUndefined();
+  expect(parseAppUrl({ APP_URL: "not a url" })).toBeUndefined();
 });

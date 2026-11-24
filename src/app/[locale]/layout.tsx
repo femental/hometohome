@@ -6,6 +6,7 @@ import { Footer } from "@/components/site/Footer";
 import { Header } from "@/components/site/Header";
 import { HtmlDocument } from "@/components/site/HtmlDocument";
 import { routing } from "@/i18n/routing";
+import { appUrl } from "@/server/env";
 
 // The whole document (`<html lang>`, messages, header) depends on the locale param, so entering
 // this segment from outside (another locale, /admin) may block. Navigations between pages of one
@@ -21,6 +22,7 @@ export async function generateMetadata({ params }: LayoutProps<"/[locale]">): Pr
   if (!hasLocale(routing.locales, locale)) return {};
   const t = await getTranslations({ locale, namespace: "common" });
   return {
+    metadataBase: appUrl(),
     title: { default: t("appName"), template: `%s · ${t("appName")}` },
     description: t("metaDescription"),
   };

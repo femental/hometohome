@@ -91,6 +91,24 @@ export function bankTransferInfo(): BankTransferInfo {
   return parseBankTransferInfo(process.env);
 }
 
+/** Only APP_URL, so public pages can set `metadataBase` without validating unrelated secrets. */
+export function parseAppUrl(raw: Record<string, string | undefined>): URL | undefined {
+  const parsed = z.string().url().safeParse(raw.APP_URL?.trim());
+  return parsed.success ? new URL(parsed.data) : undefined;
+}
+
+let appUrlWarned = false;
+
+/** `APP_URL` as a URL, or undefined (logged once) when missing/invalid. */
+export function appUrl(): URL | undefined {
+  const url = parseAppUrl(process.env);
+  if (!url && !appUrlWarned) {
+    appUrlWarned = true;
+    console.warn("APP_URL is missing or invalid; metadataBase is not set");
+  }
+  return url;
+}
+
 let cached: ServerEnv | undefined;
 
 export function serverEnv(): ServerEnv {
