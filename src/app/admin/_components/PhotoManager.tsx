@@ -1,15 +1,38 @@
 "use client";
 
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
-import { removePhotoAction, reorderPhotosAction, uploadPhotoAction } from "../actions/photos";
+import { photoBucket } from "@/lib/photo-url";
+import { createPhotoUploadAction, registerPhotoAction, removePhotoAction, reorderPhotosAction } from "../actions/photos";
 import { ConfirmButton } from "./ConfirmButton";
 
 export type PhotoItem = { id: string; url: string };
 
 const ACCEPT = "image/jpeg,image/png,image/webp";
-const MAX_BYTES = 4 * 1024 * 1024; // mirrors PHOTO_MAX_BYTES; the server checks again
+const MAX_BYTES = 10 * 1024 * 1024; // mirrors PHOTO_UPLOAD_MAX_BYTES; the server checks again
 const MAX_PHOTOS = 20;
+
+let browserClient: SupabaseClient | null = null;
+/** Anon client used only to put files to server-issued signed upload URLs. */
+function uploadClient(): SupabaseClient {
+  browserClient ??= createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  return browserClient;
+}
+
+/** Signed URL → direct upload to Storage → register (the server checks the bytes). */
+async function uploadOne(kind: "house" | "room", ownerId: string, file: File): Promise<string | null> {
+  const signed = await createPhotoUploadAction(kind, ownerId, { contentType: file.type, size: file.size });
+  if (!signed.ok) return signed.error ?? "업로드하지 못했습니다.";
+  const { error } = await uploadClient()
+    .storage.from(photoBucket())
+    .uploadToSignedUrl(signed.path, signed.token, file, { contentType: file.type, cacheControl: "31536000" });
+  if (error) return "저장소에 올리지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  const r = await registerPhotoAction(kind, ownerId, signed.path);
+  return r.ok ? null : (r.error ?? "업로드하지 못했습니다.");
+}
 
 /** Photo list (first one is the cover) with upload, up/down reordering and delete. */
 export function PhotoManager({
@@ -37,19 +60,17 @@ export function PhotoManager({
     startUpload(async () => {
       const failed: string[] = [];
       let done = 0;
-      // One file per request keeps each one under the Server Action body size limit.
+      // Files go straight to Storage; the server only issues the URL and checks the result.
       for (const [i, file] of files.entries()) {
         setProgress(`${i + 1} / ${files.length} 업로드 중…`);
         if (file.size > MAX_BYTES) {
-          failed.push(`${file.name}: 사진은 한 장에 4MB 이하만 올릴 수 있습니다.`);
+          failed.push(`${file.name}: 사진은 한 장에 10MB 이하만 올릴 수 있습니다.`);
           continue;
         }
-        const fd = new FormData();
-        fd.append("files", file);
         try {
-          const r = await uploadPhotoAction(kind, ownerId, fd);
-          if (r.ok) done++;
-          else failed.push(r.error ?? `${file.name}: 업로드하지 못했습니다.`);
+          const error = await uploadOne(kind, ownerId, file);
+          if (error === null) done++;
+          else failed.push(`${file.name}: ${error}`);
         } catch {
           failed.push(`${file.name}: 업로드하지 못했습니다. 잠시 후 다시 시도해 주세요.`);
         }
@@ -133,7 +154,7 @@ export function PhotoManager({
       ) : (
         <p className="text-sm text-zinc-500">사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있습니다.</p>
       )}
-      <p className="text-xs text-zinc-500">JPG, PNG, WEBP · 한 장에 4MB 이하 · 최대 {MAX_PHOTOS}장</p>
+      <p className="text-xs text-zinc-500">JPG, PNG, WEBP · 한 장에 10MB 이하 · 최대 {MAX_PHOTOS}장</p>
       {progress && (
         <p role="status" className="text-sm text-zinc-700">
           {progress}

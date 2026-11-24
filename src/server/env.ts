@@ -49,7 +49,6 @@ const schema = z.object({
   EMAIL_FROM: z.string().min(1),
   RESEND_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   KAKAO_REST_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
-  PHOTO_BUCKET: z.preprocess(emptyToUndefined, z.string().min(1).default("photos")),
 });
 
 export type ServerEnv = z.output<typeof schema>;

@@ -1,7 +1,10 @@
 import "server-only";
+import { photoBucket } from "@/lib/photo-url";
+import { createSupabaseAdminClient } from "@/server/auth/supabase";
 import { prisma } from "@/server/db";
 import { defaultEmailSender } from "@/server/email/sender";
 import { serverEnv } from "@/server/env";
+import { SupabasePhotoStorage } from "@/server/photos/storage";
 import { runDailyCleanup } from "./cleanup";
 import { runExpiry, runPaymentReminders, type JobDeps } from "./expire";
 
@@ -22,6 +25,8 @@ export async function runJob(name: string): Promise<Record<string, number> | nul
       reminders: reminders.length,
     };
   }
-  if (name === "daily") return runDailyCleanup(jobDeps());
+  if (name === "daily") {
+    return runDailyCleanup(jobDeps(), new SupabasePhotoStorage(createSupabaseAdminClient(), photoBucket()));
+  }
   return null;
 }

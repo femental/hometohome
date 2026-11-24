@@ -43,14 +43,13 @@ vi.mock("@/server/admin/catalog", async (importOriginal) => {
 
 vi.mock("@/server/photos/service", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/server/photos/service")>();
-  return { ...real, addPhoto: vi.fn(), removePhoto: vi.fn(), reorderPhotos: vi.fn() };
+  return { ...real, createPhotoUpload: vi.fn(), registerPhoto: vi.fn(), removePhoto: vi.fn(), reorderPhotos: vi.fn() };
 });
 
 const kakao = vi.hoisted(() => ({ geocodeAddress: vi.fn() }));
 vi.mock("@/server/geo/kakao", () => kakao);
 
 vi.mock("@/server/auth/supabase", () => ({ createSupabaseAdminClient: vi.fn() }));
-vi.mock("@/server/env", () => ({ serverEnv: vi.fn(() => ({ PHOTO_BUCKET: "photos" })) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), forbidden: vi.fn() }));
 
@@ -81,7 +80,7 @@ const all = { ...catalogActions, ...photoActions, ...geocodeActions } as Record<
 
 const serviceMocks = [
   ...Object.values(catalog).filter((v) => vi.isMockFunction(v)),
-  ...[photoService.addPhoto, photoService.removePhoto, photoService.reorderPhotos],
+  ...[photoService.createPhotoUpload, photoService.registerPhoto, photoService.removePhoto, photoService.reorderPhotos],
   createSupabaseAdminClient,
   revalidatePath,
   redirect,
@@ -104,9 +103,10 @@ test("action files export the planned actions", () => {
     "updateRoomAction",
   ]);
   expect(Object.keys(photoActions).sort()).toEqual([
+    "createPhotoUploadAction",
+    "registerPhotoAction",
     "removePhotoAction",
     "reorderPhotosAction",
-    "uploadPhotoAction",
   ]);
   expect(Object.keys(geocodeActions).sort()).toEqual(["geocodeAction"]);
   for (const [name, fn] of Object.entries(all)) expect(typeof fn, name).toBe("function");

@@ -103,6 +103,97 @@ export async function addPhoto(
   }
 }
 
+/** Direct (signed) uploads skip the server action body limit, so they may be larger. */
+export const PHOTO_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+
+const FILE_NAME_RE = /^[0-9a-f-]{36}\.(jpg|png|webp)$/i;
+
+/**
+ * Step 1 of a direct upload: checks type, size and the per-owner limit, then issues a signed
+ * upload URL for a server-chosen path under the owner (`houses|rooms/<ownerId>/<uuid>.<ext>`).
+ */
+export async function createPhotoUpload(
+  db: Db,
+  storage: PhotoStorage,
+  owner: PhotoOwner,
+  file: { contentType: string; size: number },
+): Promise<{ path: string; signedUrl: string; token: string }> {
+  const type = PHOTO_TYPES.find((t) => t === file.contentType);
+  if (!type) throw new PhotoError("BAD_TYPE");
+  if (!Number.isInteger(file.size) || file.size <= 0 || file.size > PHOTO_UPLOAD_MAX_BYTES) throw new PhotoError("TOO_LARGE");
+  if (!UUID_RE.test(owner.id)) throw new PhotoError("NOT_FOUND");
+  const r = repo(db, owner.kind);
+  if (!(await r.ownerExists(owner.id))) throw new PhotoError("NOT_FOUND");
+  if ((await r.count(owner.id)) >= PHOTOS_PER_OWNER) throw new PhotoError("LIMIT");
+
+  const path = `${owner.kind}s/${owner.id}/${randomUUID()}.${EXT[type]}`;
+  return { path, ...(await storage.signedUpload(path)) };
+}
+
+/**
+ * Step 2: after the browser uploaded to the signed URL, checks the object really is an image of the
+ * kind its name says and within the size limit, then creates the photo row. A bad file is deleted.
+ */
+export async function registerPhoto(
+  db: Db,
+  storage: PhotoStorage,
+  owner: PhotoOwner,
+  path: string,
+): Promise<HousePhoto | RoomPhoto> {
+  if (!UUID_RE.test(owner.id)) throw new PhotoError("NOT_FOUND");
+  const prefix = `${owner.kind}s/${owner.id}/`;
+  const name = path.startsWith(prefix) ? path.slice(prefix.length) : "";
+  if (!FILE_NAME_RE.test(name)) throw new PhotoError("NOT_FOUND");
+  const r = repo(db, owner.kind);
+  if (!(await r.ownerExists(owner.id))) throw new PhotoError("NOT_FOUND");
+
+  const bytes = await storage.read(path);
+  if (!bytes) throw new PhotoError("NOT_FOUND");
+  const detected = sniff(bytes);
+  const expected = PHOTO_TYPES.find((t) => EXT[t] === name.split(".")[1].toLowerCase());
+  const problem: PhotoErrorCode | null =
+    !detected || detected !== expected ? "BAD_TYPE" : bytes.length > PHOTO_UPLOAD_MAX_BYTES ? "TOO_LARGE" : null;
+  if (problem) {
+    await storage.remove([path]).catch((err) => console.error("photo cleanup failed", path, err));
+    throw new PhotoError(problem);
+  }
+  if ((await r.count(owner.id)) >= PHOTOS_PER_OWNER) {
+    await storage.remove([path]).catch((err) => console.error("photo cleanup failed", path, err));
+    throw new PhotoError("LIMIT");
+  }
+  const sortOrder = ((await r.maxSort(owner.id)) ?? -1) + 1;
+  return r.create(owner.id, path, sortOrder);
+}
+
+const ORPHAN_AGE_MS = 24 * 3600_000;
+const ORPHAN_BATCH = 500;
+
+/**
+ * Daily: deletes stored photo files no photo row points to, once they are a day old (a fresh file
+ * may belong to an upload that is about to be registered). At most 500 files per run.
+ */
+export async function cleanupOrphanPhotos(db: Db, storage: PhotoStorage, now: Date): Promise<{ deleted: number }> {
+  const cutoff = now.getTime() - ORPHAN_AGE_MS;
+  const orphans: string[] = [];
+  for (const root of ["houses", "rooms"]) {
+    for (const folder of await storage.listFolders(root)) {
+      const files = (await storage.list(folder)).filter((f) => f.createdAt.getTime() < cutoff);
+      if (files.length === 0) continue;
+      const paths = files.map((f) => f.path);
+      const [h, rm] = await Promise.all([
+        db.housePhoto.findMany({ where: { storagePath: { in: paths } }, select: { storagePath: true } }),
+        db.roomPhoto.findMany({ where: { storagePath: { in: paths } }, select: { storagePath: true } }),
+      ]);
+      const used = new Set([...h, ...rm].map((p) => p.storagePath));
+      orphans.push(...paths.filter((p) => !used.has(p)));
+      if (orphans.length >= ORPHAN_BATCH) break;
+    }
+  }
+  const batch = orphans.slice(0, ORPHAN_BATCH);
+  if (batch.length > 0) await storage.remove(batch);
+  return { deleted: batch.length };
+}
+
 export async function removePhoto(
   db: Db,
   storage: PhotoStorage,

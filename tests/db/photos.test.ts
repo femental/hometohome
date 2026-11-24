@@ -5,11 +5,16 @@ import {
   SupabasePhotoStorage,
   type PhotoStorage,
 } from "@/server/photos/storage";
+import { randomUUID } from "node:crypto";
 import {
   PHOTOS_PER_OWNER,
   PHOTO_MAX_BYTES,
+  PHOTO_UPLOAD_MAX_BYTES,
   PhotoError,
   addPhoto,
+  cleanupOrphanPhotos,
+  createPhotoUpload,
+  registerPhoto,
   removePhoto,
   reorderPhotos,
 } from "@/server/photos/service";
@@ -146,13 +151,11 @@ describe("removePhoto", () => {
   test("storage failure is logged, row stays deleted, no throw", async () => {
     const { owner, storage } = await setup();
     const p = await addPhoto(prisma, storage, owner, jpeg());
-    const failing: PhotoStorage = {
-      put: storage.put.bind(storage),
-      publicUrl: storage.publicUrl.bind(storage),
+    const failing: PhotoStorage = Object.assign(Object.create(storage) as PhotoStorage, {
       remove: async () => {
         throw new Error("storage down");
       },
-    };
+    });
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     await removePhoto(prisma, failing, "room", p.id);
     expect(spy).toHaveBeenCalled();
@@ -221,11 +224,64 @@ describe("SupabasePhotoStorage", () => {
     expect(s.publicUrl("a/b.jpg")).toBe("http://x/public/photos/a/b.jpg");
   });
 
-  test("creates public bucket once and retries when bucket is missing", async () => {
+  test("a missing bucket is a setup error: no bucket is created at runtime", async () => {
     const f = fakeClient(true);
     const s = new SupabasePhotoStorage(f.client, "photos");
-    await s.put("a.jpg", new Uint8Array([1]), "image/jpeg");
-    expect(f.createBucket).toHaveBeenCalledWith("photos", { public: true });
-    expect(f.upload).toHaveBeenCalledTimes(2);
+    await expect(s.put("a.jpg", new Uint8Array([1]), "image/jpeg")).rejects.toBeTruthy();
+    expect(f.createBucket).not.toHaveBeenCalled();
+  });
+});
+
+describe("signed direct upload", () => {
+  test("createPhotoUpload refuses bad type, >10MB and the 21st photo before issuing a URL", async () => {
+    const { owner, storage } = await setup();
+    expect(await codeOf(createPhotoUpload(prisma, storage, owner, { contentType: "image/gif", size: 10 }))).toBe("BAD_TYPE");
+    expect(await codeOf(createPhotoUpload(prisma, storage, owner, { contentType: "image/jpeg", size: PHOTO_UPLOAD_MAX_BYTES + 1 }))).toBe(
+      "TOO_LARGE",
+    );
+    for (let i = 0; i < PHOTOS_PER_OWNER; i++) {
+      await prisma.roomPhoto.create({ data: { roomId: owner.id, storagePath: `rooms/${owner.id}/x${i}.jpg`, sortOrder: i } });
+    }
+    expect(await codeOf(createPhotoUpload(prisma, storage, owner, { contentType: "image/jpeg", size: 100 }))).toBe("LIMIT");
+    expect(storage.signed).toHaveLength(0);
+  });
+
+  test("issues a server-chosen path under the owner and registers the uploaded file", async () => {
+    const { owner, storage } = await setup();
+    const up = await createPhotoUpload(prisma, storage, owner, { contentType: "image/png", size: 8 });
+    expect(up.path).toMatch(new RegExp(`^rooms/${owner.id}/[0-9a-f-]{36}\\.png$`));
+    await storage.put(up.path, png().bytes, "image/png"); // what the browser's direct upload does
+    const photo = await registerPhoto(prisma, storage, owner, up.path);
+    expect(photo.storagePath).toBe(up.path);
+  });
+
+  test("registerPhoto refuses a path outside the owner's prefix and a missing object", async () => {
+    const { owner, storage } = await setup();
+    const other = await makeRoom(prisma);
+    await storage.put(`rooms/${other.id}/a.jpg`, jpeg().bytes, "image/jpeg");
+    expect(await codeOf(registerPhoto(prisma, storage, owner, `rooms/${other.id}/a.jpg`))).toBe("NOT_FOUND");
+    expect(await codeOf(registerPhoto(prisma, storage, owner, `rooms/${owner.id}/../${other.id}/a.jpg`))).toBe("NOT_FOUND");
+    expect(await codeOf(registerPhoto(prisma, storage, owner, `rooms/${owner.id}/${randomUUID()}.jpg`))).toBe("NOT_FOUND");
+    expect(await prisma.roomPhoto.count()).toBe(0);
+  });
+
+  test("registerPhoto rejects a file whose bytes are not an image and deletes it", async () => {
+    const { owner, storage } = await setup();
+    const up = await createPhotoUpload(prisma, storage, owner, { contentType: "image/jpeg", size: 8 });
+    await storage.put(up.path, new TextEncoder().encode("<html>"), "image/jpeg");
+    expect(await codeOf(registerPhoto(prisma, storage, owner, up.path))).toBe("BAD_TYPE");
+    expect(storage.files.has(up.path)).toBe(false);
+  });
+
+  test("cleanup deletes unreferenced files older than 24h and keeps referenced or new ones", async () => {
+    const { owner, storage } = await setup();
+    const now = new Date();
+    const old = new Date(now.getTime() - 25 * 3600_000);
+    await storage.put(`rooms/${owner.id}/orphan.jpg`, jpeg().bytes, "image/jpeg", old);
+    await storage.put(`rooms/${owner.id}/kept.jpg`, jpeg().bytes, "image/jpeg", old);
+    await storage.put(`rooms/${owner.id}/fresh.jpg`, jpeg().bytes, "image/jpeg", now);
+    await prisma.roomPhoto.create({ data: { roomId: owner.id, storagePath: `rooms/${owner.id}/kept.jpg`, sortOrder: 0 } });
+    expect(await cleanupOrphanPhotos(prisma, storage, now)).toEqual({ deleted: 1 });
+    expect([...storage.files.keys()].sort()).toEqual([`rooms/${owner.id}/fresh.jpg`, `rooms/${owner.id}/kept.jpg`]);
   });
 });

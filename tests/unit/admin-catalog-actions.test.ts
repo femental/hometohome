@@ -20,10 +20,9 @@ vi.mock("@/server/admin/catalog", async (importOriginal) => {
 });
 vi.mock("@/server/photos/service", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/server/photos/service")>();
-  return { ...real, addPhoto: vi.fn() };
+  return { ...real, createPhotoUpload: vi.fn(), registerPhoto: vi.fn() };
 });
 vi.mock("@/server/auth/supabase", () => ({ createSupabaseAdminClient: vi.fn(() => ({})) }));
-vi.mock("@/server/env", () => ({ serverEnv: vi.fn(() => ({ PHOTO_BUCKET: "photos" })) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((url: string) => {
@@ -33,7 +32,7 @@ vi.mock("next/navigation", () => ({
 
 import { revalidatePath } from "next/cache";
 import { CatalogError, createBlock, createHouse, deleteHouse, deleteRoom, updateHouse } from "@/server/admin/catalog";
-import { addPhoto, PhotoError } from "@/server/photos/service";
+import { createPhotoUpload, PhotoError, registerPhoto } from "@/server/photos/service";
 import {
   createBlockAction,
   createHouseAction,
@@ -41,7 +40,7 @@ import {
   deleteRoomAction,
   updateHouseAction,
 } from "@/app/admin/actions/catalog";
-import { uploadPhotoAction } from "@/app/admin/actions/photos";
+import { createPhotoUploadAction, registerPhotoAction } from "@/app/admin/actions/photos";
 
 const ID = "6f1c1c7e-2f7a-4c55-9b44-2f1f0f4b8a11";
 
@@ -128,23 +127,25 @@ test("createBlockAction maps BLOCK_CONFLICT and passes the parsed dates", async 
   );
 });
 
-test("uploadPhotoAction uploads each file and reports per-file failures", async () => {
-  vi.mocked(addPhoto)
-    .mockResolvedValueOnce({ id: "p1" } as never)
+test("createPhotoUploadAction returns the signed path and token, or the error message", async () => {
+  vi.mocked(createPhotoUpload)
+    .mockResolvedValueOnce({ path: `rooms/${ID}/x.jpg`, token: "t", signedUrl: "u" })
     .mockRejectedValueOnce(new PhotoError("BAD_TYPE"));
-  const fd = new FormData();
-  fd.append("files", new File([new Uint8Array([1, 2, 3])], "a.jpg", { type: "image/jpeg" }));
-  fd.append("files", new File([new Uint8Array([4, 5])], "b.gif", { type: "image/gif" }));
-
-  const r = await uploadPhotoAction("room", ID, fd);
-  expect(r).toEqual({ ok: false, error: "b.gif: JPG, PNG, WEBP 이미지만 올릴 수 있습니다." });
-  expect(addPhoto).toHaveBeenCalledTimes(2);
-  expect(vi.mocked(addPhoto).mock.calls[0][2]).toEqual({ kind: "room", id: ID });
-  expect(vi.mocked(addPhoto).mock.calls[0][3]).toEqual({ bytes: new Uint8Array([1, 2, 3]), contentType: "image/jpeg" });
-  expect(revalidatePath).toHaveBeenCalledWith(`/admin/rooms/${ID}`);
+  expect(await createPhotoUploadAction("room", ID, { contentType: "image/jpeg", size: 10 })).toEqual({
+    ok: true,
+    path: `rooms/${ID}/x.jpg`,
+    token: "t",
+  });
+  expect(vi.mocked(createPhotoUpload).mock.calls[0][2]).toEqual({ kind: "room", id: ID });
+  expect(await createPhotoUploadAction("room", ID, { contentType: "image/gif", size: 10 })).toEqual({
+    ok: false,
+    error: "JPG, PNG, WEBP 이미지만 올릴 수 있습니다.",
+  });
 });
 
-test("uploadPhotoAction asks for a file when none is chosen", async () => {
-  expect(await uploadPhotoAction("house", ID, new FormData())).toEqual({ ok: false, error: "올릴 사진을 선택해 주세요." });
-  expect(addPhoto).not.toHaveBeenCalled();
+test("registerPhotoAction registers the path and revalidates the owner page", async () => {
+  vi.mocked(registerPhoto).mockResolvedValueOnce({ id: "p1" } as never);
+  expect(await registerPhotoAction("room", ID, `rooms/${ID}/x.jpg`)).toEqual({ ok: true });
+  expect(vi.mocked(registerPhoto).mock.calls[0][3]).toBe(`rooms/${ID}/x.jpg`);
+  expect(revalidatePath).toHaveBeenCalledWith(`/admin/rooms/${ID}`);
 });

@@ -20,9 +20,8 @@ test("missing required key throws naming the key", () => {
   expect(() => parseServerEnv({ ...validEnv, APP_URL: undefined })).toThrow(/APP_URL/);
 });
 
-test("PHOTO_BUCKET defaults to photos and optional keys may be absent", () => {
+test("optional keys may be absent", () => {
   const env = parseServerEnv(validEnv);
-  expect(env.PHOTO_BUCKET).toBe("photos");
   expect(env.RESEND_API_KEY).toBeUndefined();
   expect(env.KAKAO_REST_API_KEY).toBeUndefined();
 });

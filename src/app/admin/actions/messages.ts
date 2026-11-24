@@ -15,7 +15,7 @@ export const CATALOG_ERROR_MESSAGES: Record<CatalogErrorCode, string> = {
 
 export const PHOTO_ERROR_MESSAGES: Record<PhotoErrorCode, string> = {
   BAD_TYPE: "JPG, PNG, WEBP 이미지만 올릴 수 있습니다.",
-  TOO_LARGE: "사진은 한 장에 4MB 이하만 올릴 수 있습니다.",
+  TOO_LARGE: "사진은 한 장에 10MB 이하만 올릴 수 있습니다.",
   NOT_FOUND: "사진 또는 대상 숙소·방을 찾을 수 없습니다.",
   LIMIT: "사진은 최대 20장까지 올릴 수 있습니다.",
 };
