@@ -44,7 +44,8 @@ export default async function setup() {
   try {
     execSync("npx prisma migrate deploy", {
       stdio: "pipe",
-      env: { ...process.env, DATABASE_URL: url.href },
+      // prisma.config.ts prefers DIRECT_URL: pin both so a production DIRECT_URL in the shell is never used.
+      env: { ...process.env, DATABASE_URL: url.href, DIRECT_URL: url.href },
     });
   } catch (e) {
     const err = e as { stdout?: Buffer; stderr?: Buffer };

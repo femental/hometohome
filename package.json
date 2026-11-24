@@ -14,6 +14,7 @@
         "sb:start": "supabase start",
         "sb:stop": "supabase stop",
         "db:generate": "prisma generate",
+        "db:deploy": "tsx scripts/db-deploy.ts",
         "setup:storage": "tsx scripts/setup-storage.ts",
         "postinstall": "prisma generate"
     },
