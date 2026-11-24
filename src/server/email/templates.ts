@@ -27,6 +27,8 @@ export interface TemplateData {
   firstPaymentTotal?: number;
   deposit?: number;
   holdExpiresAt?: Date;
+  /** Last instant for a full refund (booking_confirmed). */
+  cancellationDeadline?: Date;
   payUrl?: string;
   bookingUrl?: string;
   reason?: string;
@@ -49,6 +51,7 @@ interface View {
   total: string;
   deposit: string;
   deadline: string;
+  refundDeadline: string;
   payUrl: string;
   bookingUrl: string;
   reason: string;
@@ -168,7 +171,7 @@ const TEMPLATES: Record<TemplateName, Template> = {
     }),
   },
   booking_confirmed: {
-    need: [],
+    need: ["firstPaymentTotal", "deposit", "cancellationDeadline"],
     en: (v) => ({
       subject: `Booking confirmed – ${v.place}`,
       lines: [
@@ -176,6 +179,8 @@ const TEMPLATES: Record<TemplateName, Template> = {
         `Your booking for ${v.place} is confirmed.`,
         `Move-in: ${v.moveIn}`,
         `Last night: ${v.lastNight}`,
+        `Amount paid: ${v.total} (includes a deposit of ${v.deposit})`,
+        `Full refund if cancelled by ${v.refundDeadline} (7 days before move-in); after that only the deposit is refunded; no online cancellation from move-in day.`,
         ...(v.bookingUrl ? [link("View your booking", v.bookingUrl)] : []),
       ],
     }),
@@ -186,6 +191,8 @@ const TEMPLATES: Record<TemplateName, Template> = {
         `${v.place} 예약이 확정되었습니다.`,
         `입주일: ${v.moveIn}`,
         `마지막 숙박일: ${v.lastNight}`,
+        `결제 금액: ${v.total} (보증금 ${v.deposit} 포함)`,
+        `${v.refundDeadline}까지 취소하면 전액 환불됩니다(입주 7일 전). 그 이후에는 보증금만 환불되며, 입주일부터는 온라인 취소가 불가능합니다.`,
         ...(v.bookingUrl ? [link("예약 확인하기", v.bookingUrl)] : []),
       ],
     }),
@@ -291,6 +298,7 @@ function buildView(locale: Locale, d: TemplateData): View {
     total: d.firstPaymentTotal === undefined ? "" : formatKRW(d.firstPaymentTotal),
     deposit: d.deposit === undefined ? "" : formatKRW(d.deposit),
     deadline: d.holdExpiresAt ? formatKST(d.holdExpiresAt) : "",
+    refundDeadline: d.cancellationDeadline ? formatKST(d.cancellationDeadline) : "",
     payUrl: d.payUrl ?? "",
     bookingUrl: d.bookingUrl ?? "",
     reason: d.reason ?? "",

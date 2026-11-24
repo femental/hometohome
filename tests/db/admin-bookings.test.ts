@@ -163,6 +163,8 @@ describe("offline confirmation", () => {
     expect(d.email.sent).toHaveLength(3);
     const byTo = (to: string) => d.email.sent.find((m) => m.to === to)!;
     expect(byTo(a.guest.email).subject).toContain("Booking confirmed");
+    expect(byTo(a.guest.email).text).toContain("Full refund if cancelled by");
+    expect(byTo(a.guest.email).text).toContain("₩500,000");
     expect(byTo(rival1.guest.email).text).toContain("다른 신청이 확정되었습니다");
     expect(byTo(rival2.guest.email).text).toContain("Another request for these dates was confirmed");
   });
@@ -311,6 +313,41 @@ describe("queries", () => {
       (await listBookings(prisma, { from: "2027-04-01", to: "2027-05-31" }, NOW)).map((r) => r.id),
     ).toEqual([b.booking.id]);
     expect(await listBookings(prisma, {}, NOW)).toHaveLength(2);
+  });
+
+  test("listBookings status=payment_expired returns stored awaiting_payment with expired hold, not live ones", async () => {
+    const stale = await setup({ status: "awaiting_payment" });
+    await prisma.booking.update({ where: { id: stale.booking.id }, data: { holdExpiresAt: future(-1) } });
+    await setup({ status: "awaiting_payment" }); // hold still live
+    await setup({ status: "requested" });
+    const rows = await listBookings(prisma, { status: ["payment_expired"] }, NOW);
+    expect(rows.map((r) => r.id)).toEqual([stale.booking.id]);
+    expect(rows[0].status).toBe("payment_expired");
+  });
+
+  test("listBookings caps at 200 rows, newest move-in first", async () => {
+    const guest = await makeGuest(prisma, {});
+    const room = await makeRoom(prisma, {}, {});
+    const base = await makeBooking(prisma, {
+      roomId: room.id,
+      guestId: guest.id,
+      moveIn: "2027-02-01",
+      moveOut: "2027-03-01",
+      status: "cancelled",
+    });
+    const { id: _id, ...tpl } = base;
+    void _id;
+    await prisma.booking.createMany({
+      data: Array.from({ length: 200 }, (_, i) => ({
+        ...tpl,
+        moveIn: new Date(Date.UTC(2028, 0, 1 + i)),
+        moveOut: new Date(Date.UTC(2028, 0, 2 + i)),
+      })),
+    });
+    const rows = await listBookings(prisma, {}, NOW);
+    expect(rows).toHaveLength(200);
+    expect(rows[0].moveIn).toBe("2028-07-18");
+    expect(rows.some((r) => r.id === base.id)).toBe(false);
   });
 
   test("getBookingDetail returns serializable detail with payments, refunds, logs", async () => {

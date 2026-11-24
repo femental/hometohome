@@ -18,6 +18,7 @@ const full: TemplateData = {
   bookingUrl: "http://localhost:3000/en/bookings/b1",
   reason: "Dates conflict",
   refundKrw: 1_300_000,
+  cancellationDeadline: new Date("2027-03-08T14:59:59.999Z"),
 };
 
 const ALL: TemplateName[] = [
@@ -110,4 +111,25 @@ test("booking_cancelled uses neutral refund wording", () => {
     expect(m.text).toContain("No refund applies");
     expect(m.text).not.toContain("₩");
   }
+});
+
+test("booking_confirmed shows paid amount, deposit and refund rule (en/ko)", () => {
+  const en = renderEmail("booking_confirmed", "en", full);
+  expect(en.text).toContain("₩1,300,000");
+  expect(en.text).toContain("₩500,000");
+  expect(en.text).toContain("2027-03-08 23:59 (KST)");
+  expect(en.text).toContain("7 days before move-in");
+  expect(en.text).toContain("only the deposit is refunded");
+  expect(en.text).toContain("no online cancellation from move-in day");
+
+  const ko = renderEmail("booking_confirmed", "ko", full);
+  expect(ko.text).toContain("₩1,300,000");
+  expect(ko.text).toContain("₩500,000");
+  expect(ko.text).toContain("2027-03-08 23:59 (KST)");
+  expect(ko.text).toContain("7일 전");
+  expect(ko.text).toContain("보증금");
+});
+
+test("booking_confirmed requires amount, deposit and cancellation deadline", () => {
+  expect(() => renderEmail("booking_confirmed", "en", base)).toThrow(/missing data/);
 });

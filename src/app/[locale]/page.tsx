@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { DISTRICTS } from "@/domain/amenities";
 import { addDays, todayKST } from "@/domain/dates";
@@ -46,6 +47,7 @@ async function Search({
   setRequestLocale(locale);
   const [t, sp] = await Promise.all([getTranslations("search"), searchParams]);
 
+  await connection(); // the search depends on the clock: request-time only
   const now = new Date();
   const today = todayKST(now);
   const { params: filters, issues } = parseSearchParams(sp, today);

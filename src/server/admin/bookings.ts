@@ -3,7 +3,7 @@ import type { Booking, Prisma, Refund } from "@/generated/prisma/client";
 import { effectiveStatus, type BookingStatus } from "@/domain/booking-status";
 import { addDays, addMonthsClamped, todayKST, type ISODate } from "@/domain/dates";
 import { proportionalRefundMinor } from "@/domain/fx";
-import { decideRefund, type RefundDecision } from "@/domain/refund";
+import { cancellationDeadline, decideRefund, type RefundDecision } from "@/domain/refund";
 import { fromDbDate, toDbDate } from "@/server/bookings/availability";
 import { BookingError } from "@/server/bookings/errors";
 import {
@@ -116,7 +116,12 @@ export async function adminConfirmOffline(
   const { autoRejectedIds } = await confirmOfflinePayment(d.db, bookingId, p, d.now);
   await notify(d, [bookingId], (b) => {
     const locale = toLocale(b.guest.locale);
-    return toGuest(d, b, "booking_confirmed", { bookingUrl: `${d.appUrl}/${locale}/bookings/${b.id}` });
+    return toGuest(d, b, "booking_confirmed", {
+      bookingUrl: `${d.appUrl}/${locale}/bookings/${b.id}`,
+      firstPaymentTotal: b.firstPaymentTotal,
+      deposit: b.deposit,
+      cancellationDeadline: cancellationDeadline(fromDbDate(b.moveIn)),
+    });
   });
   await notify(d, autoRejectedIds, (b) =>
     toGuest(d, b, "request_rejected", { reason: AUTO_REJECT_REASON[toLocale(b.guest.locale)] }),
@@ -251,7 +256,20 @@ export async function listRequests(db: Db, now: Date): Promise<AdminBookingRow[]
   return rows.map((b) => toRow(b, now)).filter((r) => r.status === "requested");
 }
 
-/** Newest requests first. `status` matches the effective (read-time) status; `from`/`to` bound the move-in date. */
+const LIST_LIMIT = 200;
+
+/** Stored statuses that can read as one of the given effective statuses (expiry is applied at read time). */
+function storedStatusesFor(effective: BookingStatus[]): BookingStatus[] {
+  const stored = new Set<BookingStatus>();
+  for (const s of effective) {
+    stored.add(s);
+    if (s === "payment_expired") stored.add("awaiting_payment");
+    if (s === "request_expired") stored.add("requested");
+  }
+  return [...stored];
+}
+
+/** Latest move-in first, at most 200 rows. `status` matches the effective (read-time) status; `from`/`to` bound the move-in date. */
 export async function listBookings(
   db: Db,
   f: { status?: BookingStatus[]; roomId?: string; from?: ISODate; to?: ISODate },
@@ -259,13 +277,15 @@ export async function listBookings(
 ): Promise<AdminBookingRow[]> {
   const rows = await db.booking.findMany({
     where: {
+      ...(f.status ? { status: { in: storedStatusesFor(f.status) } } : {}),
       ...(f.roomId ? { roomId: f.roomId } : {}),
       ...(f.from || f.to
         ? { moveIn: { ...(f.from ? { gte: toDbDate(f.from) } : {}), ...(f.to ? { lte: toDbDate(f.to) } : {}) } }
         : {}),
     },
     include: bookingWithParties,
-    orderBy: [{ requestedAt: "desc" }, { id: "asc" }],
+    orderBy: [{ moveIn: "desc" }, { id: "asc" }],
+    take: LIST_LIMIT,
   });
   const mapped = rows.map((b) => toRow(b, now));
   return f.status ? mapped.filter((r) => f.status!.includes(r.status)) : mapped;

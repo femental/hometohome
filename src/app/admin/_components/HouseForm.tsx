@@ -46,9 +46,11 @@ export function HouseForm({
   const [stations, setStations] = useState(() =>
     (initial?.nearestStations ?? []).map((s, i) => ({ key: `s${i}`, initial: s as Partial<Station> })),
   );
+  const [addressEdited, setAddressEdited] = useState(false);
   const [nextRow, setNextRow] = useState(stations.length);
 
   function onAddress(sel: AddressSelection) {
+    setAddressEdited(false);
     setAddressKo(sel.addressKo);
     if (sel.district) setDistrict(sel.district);
     if (sel.lat !== undefined && sel.lng !== undefined) {
@@ -80,9 +82,22 @@ export function HouseForm({
           id={fieldId("addressKo")}
           name="addressKo"
           value={addressKo}
-          onChange={(e) => setAddressKo(e.target.value)}
+          onChange={(e) => {
+            setAddressKo(e.target.value);
+            // The coordinates belong to the searched address; drop them once the text is changed by hand.
+            if (lat !== "" || lng !== "") {
+              setLat("");
+              setLng("");
+              setAddressEdited(true);
+            }
+          }}
           error={fieldError("addressKo")}
         />
+        {addressEdited && (
+          <p role="status" className="text-xs text-amber-700">
+            주소를 바꿨습니다. 주소 검색을 다시 하거나 위도·경도를 입력해 주세요.
+          </p>
+        )}
         <Field
           label="주소 (영문, 선택)"
           id={fieldId("addressEn")}
@@ -113,7 +128,10 @@ export function HouseForm({
             name="lat"
             inputMode="decimal"
             value={lat}
-            onChange={(e) => setLat(e.target.value)}
+            onChange={(e) => {
+              setLat(e.target.value);
+              setAddressEdited(false);
+            }}
             error={fieldError("lat")}
           />
           <Field
@@ -122,7 +140,10 @@ export function HouseForm({
             name="lng"
             inputMode="decimal"
             value={lng}
-            onChange={(e) => setLng(e.target.value)}
+            onChange={(e) => {
+              setLng(e.target.value);
+              setAddressEdited(false);
+            }}
             error={fieldError("lng")}
           />
         </div>
