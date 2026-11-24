@@ -28,6 +28,10 @@ vi.mock("@/server/guest/requests", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/server/guest/requests")>();
   return { ...real, submitRequest: vi.fn(), quoteRoom: vi.fn(async () => ({ ok: false, error: "NOT_FOUND" })) };
 });
+vi.mock("@/server/guest/bookings", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/server/guest/bookings")>();
+  return { ...real, guestWithdraw: vi.fn(), guestCancel: vi.fn() };
+});
 vi.mock("@/server/email/sender", () => ({ defaultEmailSender: vi.fn(() => ({ send: vi.fn() })) }));
 vi.mock("@/server/env", () => ({
   serverEnv: vi.fn(() => ({ APP_URL: "http://localhost:3000", ADMIN_EMAILS: ["admin@example.com"] })),
@@ -40,16 +44,20 @@ vi.mock("next/navigation", () => ({
   notFound: vi.fn(),
 }));
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/server/auth/guest";
 import { BookingError } from "@/server/bookings/errors";
 import { defaultEmailSender } from "@/server/email/sender";
 import { serverEnv } from "@/server/env";
+import { guestCancel, guestWithdraw } from "@/server/guest/bookings";
 import { quoteRoom, submitRequest } from "@/server/guest/requests";
 import * as roomActions from "@/app/[locale]/rooms/[id]/actions";
 import * as accountActions from "@/app/[locale]/account/actions";
+import * as bookingActions from "@/app/[locale]/bookings/actions";
 
 const ROOM = "6f1c1c7e-2f7a-4c55-9b44-2f1f0f4b8a11";
+const BOOKING = "0b5d2c3e-8a4f-4f6b-9c1d-7e2a1b3c4d5e";
 
 function requestForm(fields: Record<string, string> = {}) {
   const fd = new FormData();
@@ -74,6 +82,7 @@ type AnyAction = (...a: unknown[]) => Promise<unknown>;
 const FILES = {
   "rooms/[id]/actions": { mod: roomActions, exports: ["quoteAction", "submitRequestAction"] },
   "account/actions": { mod: accountActions, exports: ["updateLocaleAction"] },
+  "bookings/actions": { mod: bookingActions, exports: ["cancelAction", "withdrawAction"] },
 };
 
 /** Public by design: a price preview needs no account. Validated and published-only instead. */
@@ -82,9 +91,20 @@ const PUBLIC = new Set(["quoteAction"]);
 const ARGS: Record<string, unknown[]> = {
   submitRequestAction: [requestForm()],
   updateLocaleAction: ["ko"],
+  withdrawAction: [BOOKING, "ko"],
+  cancelAction: [BOOKING, "ko"],
 };
 
-const sideEffects = [submitRequest, quoteRoom, defaultEmailSender, serverEnv, redirect];
+const sideEffects = [
+  submitRequest,
+  quoteRoom,
+  guestWithdraw,
+  guestCancel,
+  defaultEmailSender,
+  serverEnv,
+  redirect,
+  revalidatePath,
+];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -174,5 +194,73 @@ describe("quoteAction (public)", () => {
     const r = await roomActions.quoteAction({ roomId: ROOM, moveIn: "2027-03-15", lastNight: "2027-05-14", occupants: 1 });
     expect(r).toEqual({ ok: false, error: "NOT_FOUND" });
     expect(quoteRoom).toHaveBeenCalledOnce();
+  });
+});
+
+describe.each([
+  ["withdrawAction", bookingActions.withdrawAction, guestWithdraw],
+  ["cancelAction", bookingActions.cancelAction, guestCancel],
+] as const)("%s", (_name, action, service) => {
+  test("an anonymous caller is sent to login with the booking page as next", async () => {
+    await expect(action(BOOKING, "ko")).rejects.toThrow("NEXT_REDIRECT");
+    expect(requireUser).toHaveBeenCalledWith(`/ko/bookings/${BOOKING}`);
+  });
+
+  test("a tampered id or locale never reaches the login next", async () => {
+    await expect(action("../admin", "//evil.example")).rejects.toThrow("NEXT_REDIRECT");
+    expect(requireUser).toHaveBeenCalledWith("/en/bookings");
+  });
+
+  describe("signed in", () => {
+    beforeEach(() => {
+      guard.signedIn = true;
+    });
+
+    test("a malformed id is NOT_FOUND without a lookup", async () => {
+      expect(await action("not-a-uuid", "en")).toEqual({ ok: false, error: "NOT_FOUND" });
+      expect(service).not.toHaveBeenCalled();
+    });
+
+    test("someone else's booking (FORBIDDEN) is reported as NOT_FOUND", async () => {
+      vi.mocked(service).mockRejectedValueOnce(new BookingError("FORBIDDEN"));
+      expect(await action(BOOKING, "en")).toEqual({ ok: false, error: "NOT_FOUND" });
+      expect(vi.mocked(service).mock.calls[0][1]).toBe("u1");
+      expect(revalidatePath).not.toHaveBeenCalled();
+    });
+
+    test("a state refusal is returned as its code and the pages are revalidated", async () => {
+      vi.mocked(service).mockRejectedValueOnce(new BookingError("INVALID_STATE"));
+      expect(await action(BOOKING, "en")).toEqual({ ok: false, error: "INVALID_STATE" });
+      expect(revalidatePath).toHaveBeenCalled();
+    });
+
+    test("an unexpected error is rethrown", async () => {
+      vi.mocked(service).mockRejectedValueOnce(new Error("db down"));
+      await expect(action(BOOKING, "en")).rejects.toThrow("db down");
+    });
+  });
+});
+
+describe("booking actions succeed for the caller's own booking", () => {
+  beforeEach(() => {
+    guard.signedIn = true;
+  });
+
+  test("withdrawAction acts as the signed-in guest and revalidates", async () => {
+    expect(await bookingActions.withdrawAction(BOOKING, "en")).toEqual({ ok: true });
+    expect(guestWithdraw).toHaveBeenCalledWith(expect.objectContaining({ now: expect.any(Date) }), "u1", BOOKING);
+    expect(revalidatePath).toHaveBeenCalledWith("/[locale]/bookings/[id]", "page");
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  test("cancelAction returns the server-computed refund", async () => {
+    vi.mocked(guestCancel).mockResolvedValueOnce({ refundKrw: 1_300_000 });
+    expect(await bookingActions.cancelAction(BOOKING, "en")).toEqual({ ok: true, refundKrw: 1_300_000 });
+    expect(guestCancel).toHaveBeenCalledWith(
+      expect.objectContaining({ appUrl: "http://localhost:3000", adminEmails: ["admin@example.com"] }),
+      "u1",
+      BOOKING,
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/[locale]/bookings", "page");
   });
 });

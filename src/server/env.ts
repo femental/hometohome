@@ -16,8 +16,22 @@ const businessShape = {
 };
 const businessSchema = z.object(businessShape);
 
+/** Normalizes line endings and trims; blank → unset. */
+const multiline = z.preprocess(
+  (v) => (typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim() || undefined : v),
+  z.string().min(1).optional(),
+);
+
+/** Bank-transfer instructions on the guest payment page, per locale (multi-line; empty = not set). */
+const bankTransferShape = {
+  BANK_TRANSFER_INFO_EN: multiline,
+  BANK_TRANSFER_INFO_KO: multiline,
+};
+const bankTransferSchema = z.object(bankTransferShape);
+
 const schema = z.object({
   ...businessShape,
+  ...bankTransferShape,
   DATABASE_URL: z.string().min(1),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
@@ -64,6 +78,17 @@ export function parseBusinessInfo(raw: Record<string, string | undefined>): Busi
 
 export function businessInfo(): BusinessInfo {
   return parseBusinessInfo(process.env);
+}
+
+export type BankTransferInfo = z.output<typeof bankTransferSchema>;
+
+/** Only the bank-transfer keys, so the payment page does not depend on (or validate) unrelated secrets. */
+export function parseBankTransferInfo(raw: Record<string, string | undefined>): BankTransferInfo {
+  return bankTransferSchema.parse(raw);
+}
+
+export function bankTransferInfo(): BankTransferInfo {
+  return parseBankTransferInfo(process.env);
 }
 
 let cached: ServerEnv | undefined;
