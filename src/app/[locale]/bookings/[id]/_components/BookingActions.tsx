@@ -46,7 +46,9 @@ export function BookingActions({
         const r = await withdrawAction(bookingId, locale);
         setOutcome(r.ok ? { kind: "withdrawn" } : { kind: "error", error: r.error });
       } else {
-        const r = await cancelAction(bookingId, locale);
+        // The refund kind the guest is confirming; the server refuses if it no longer applies.
+        if (!preview || preview.kind === "not_allowed") return;
+        const r = await cancelAction(bookingId, preview.kind, locale);
         setOutcome(r.ok ? { kind: "cancelled", refundKrw: r.refundKrw } : { kind: "error", error: r.error });
       }
       setConfirming(false);

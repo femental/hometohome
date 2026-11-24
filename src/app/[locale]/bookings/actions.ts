@@ -2,6 +2,7 @@
 
 import { hasLocale } from "next-intl";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { routing } from "@/i18n/routing";
 import { requireUser } from "@/server/auth/guest";
 import { prisma } from "@/server/db";
@@ -49,10 +50,22 @@ export async function withdrawAction(bookingId: string, locale?: string): Promis
   return { ok: true };
 }
 
-/** Cancels the caller's own confirmed booking after they saw the refund preview; returns the refund (KRW). */
-export async function cancelAction(bookingId: string, locale?: string): Promise<CancelResult> {
+const expectedKind = z.enum(["full", "deposit_only"]);
+
+/**
+ * Cancels the caller's own confirmed booking with the refund kind they saw in the preview; returns
+ * the refund (KRW). If the refund changed since (REFUND_CHANGED), nothing is written and the page
+ * re-renders with the new preview for the guest to confirm again.
+ */
+export async function cancelAction(
+  bookingId: string,
+  expected: "full" | "deposit_only",
+  locale?: string,
+): Promise<CancelResult> {
   const user = await requireUser(bookingPath(bookingId, locale));
   if (typeof bookingId !== "string" || !isBookingId(bookingId)) return { ok: false, error: "NOT_FOUND" };
+  const kind = expectedKind.safeParse(expected);
+  if (!kind.success) return { ok: false, error: "VALIDATION" };
 
   let refundKrw: number;
   try {
@@ -61,6 +74,7 @@ export async function cancelAction(bookingId: string, locale?: string): Promise<
       { db: prisma, email: defaultEmailSender(), now: new Date(), appUrl: env.APP_URL, adminEmails: env.ADMIN_EMAILS },
       user.id,
       bookingId,
+      kind.data,
     ));
   } catch (e) {
     const error = guestBookingErrorKey(e);

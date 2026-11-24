@@ -4,7 +4,6 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Card } from "@/components/ui/Card";
-import { addDays } from "@/domain/dates";
 import { Link } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
 import { formatDate, formatKRW, formatKST } from "@/lib/format";
@@ -120,7 +119,7 @@ async function BookingDetail({ params }: Pick<PageProps<"/[locale]/bookings/[id]
         <p className="mt-2 text-xs text-zinc-500">{t("priceNote")}</p>
         {(b.status === "requested" || b.status === "awaiting_payment" || b.status === "confirmed") && (
           <p className="mt-2 text-xs text-zinc-500">
-            {tRequest("cancellation", { date: formatDate(addDays(b.moveIn, -7), locale) })}
+            {t("cancellationRule", { time: formatKST(b.cancellationDeadline) })}
           </p>
         )}
       </Card>

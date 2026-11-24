@@ -134,7 +134,7 @@ describe("withdraw", () => {
 
     const c = await confirmed();
     const email = new MemoryEmailSender();
-    const err = await guestCancel(deps(email), c.other.id, c.booking.id).catch((e) => e);
+    const err = await guestCancel(deps(email), c.other.id, c.booking.id, "full").catch((e) => e);
     expect(guestBookingErrorKey(err)).toBe("NOT_FOUND");
     expect(await guestPreviewCancel(prisma, c.other.id, c.booking.id, NOW)).toBeNull();
 
@@ -172,7 +172,7 @@ describe("cancel", () => {
     expect(preview).toMatchObject({ kind: "full", amountKrw: booking.firstPaymentTotal });
 
     const email = new MemoryEmailSender();
-    const r = await guestCancel(deps(email), guest.id, booking.id);
+    const r = await guestCancel(deps(email), guest.id, booking.id, "full");
     expect(r).toEqual({ refundKrw: booking.firstPaymentTotal });
     expect(await statusOf(booking.id)).toBe("cancelled");
 
@@ -200,11 +200,33 @@ describe("cancel", () => {
     expect(preview).toMatchObject({ kind: "deposit_only", amountKrw: 500_000 });
     expect(preview!.payments[0].currency).toBe("USD");
 
-    const r = await guestCancel(deps(), guest.id, booking.id);
+    const r = await guestCancel(deps(), guest.id, booking.id, "deposit_only");
     expect(r).toEqual({ refundKrw: 500_000 });
     const refund = await prisma.refund.findFirstOrThrow();
     expect(refund.reason).toBe("guest_cancel_deposit_only");
     expect(refund.amountRefundedMinor).toBe(preview!.payments[0].refundMinor);
+  });
+
+  test("guestCancel refuses with REFUND_CHANGED when the refund kind changed since the preview", async () => {
+    // Full-refund deadline: 2027-01-10 23:59:59 KST (move-in 2027-01-17).
+    const { booking, guest } = await confirmed({ moveIn: "2027-01-17", moveOut: "2027-02-17" });
+    const t1 = NOW; // 2027-01-10 12:00 KST, before the deadline
+    const t2 = new Date("2027-01-10T15:30:00Z"); // 2027-01-11 00:30 KST, after it
+    expect(await guestPreviewCancel(prisma, guest.id, booking.id, t1)).toMatchObject({ kind: "full" });
+
+    const email = new MemoryEmailSender();
+    const err = await guestCancel(deps(email, t2), guest.id, booking.id, "full").catch((e) => e);
+    expect(guestBookingErrorKey(err)).toBe("REFUND_CHANGED");
+    expect(await statusOf(booking.id)).toBe("confirmed");
+    expect(await prisma.refund.count()).toBe(0);
+    expect(email.sent).toEqual([]);
+    expect(await prisma.emailLog.count()).toBe(0);
+
+    expect(await guestPreviewCancel(prisma, guest.id, booking.id, t2)).toMatchObject({ kind: "deposit_only" });
+    const r = await guestCancel(deps(email, t2), guest.id, booking.id, "deposit_only");
+    expect(r).toEqual({ refundKrw: 500_000 });
+    expect(await statusOf(booking.id)).toBe("cancelled");
+    expect((await prisma.refund.findFirstOrThrow()).reason).toBe("guest_cancel_deposit_only");
   });
 
   test("guestCancel on move-in day → CANCEL_NOT_ALLOWED", async () => {
@@ -215,7 +237,7 @@ describe("cancel", () => {
       payments: [],
     });
     const email = new MemoryEmailSender();
-    const err = await guestCancel(deps(email), guest.id, booking.id).catch((e) => e);
+    const err = await guestCancel(deps(email), guest.id, booking.id, "full").catch((e) => e);
     expect(guestBookingErrorKey(err)).toBe("CANCEL_NOT_ALLOWED");
     expect(await statusOf(booking.id)).toBe("confirmed");
     expect(await prisma.refund.count()).toBe(0);
@@ -225,7 +247,7 @@ describe("cancel", () => {
   test("guests cannot cancel an unpaid hold; preview is null for it", async () => {
     const { booking, guest } = await setup({ status: "awaiting_payment" });
     expect(await guestPreviewCancel(prisma, guest.id, booking.id, NOW)).toBeNull();
-    const err = await guestCancel(deps(), guest.id, booking.id).catch((e) => e);
+    const err = await guestCancel(deps(), guest.id, booking.id, "full").catch((e) => e);
     expect(guestBookingErrorKey(err)).toBe("INVALID_STATE");
     expect(await statusOf(booking.id)).toBe("awaiting_payment");
   });

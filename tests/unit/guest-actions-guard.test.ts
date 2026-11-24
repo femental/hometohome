@@ -51,6 +51,7 @@ import { BookingError } from "@/server/bookings/errors";
 import { defaultEmailSender } from "@/server/email/sender";
 import { serverEnv } from "@/server/env";
 import { guestCancel, guestWithdraw } from "@/server/guest/bookings";
+import { GuestError } from "@/server/guest/errors";
 import { quoteRoom, submitRequest } from "@/server/guest/requests";
 import * as roomActions from "@/app/[locale]/rooms/[id]/actions";
 import * as accountActions from "@/app/[locale]/account/actions";
@@ -92,7 +93,7 @@ const ARGS: Record<string, unknown[]> = {
   submitRequestAction: [requestForm()],
   updateLocaleAction: ["ko"],
   withdrawAction: [BOOKING, "ko"],
-  cancelAction: [BOOKING, "ko"],
+  cancelAction: [BOOKING, "full", "ko"],
 };
 
 const sideEffects = [
@@ -198,8 +199,8 @@ describe("quoteAction (public)", () => {
 });
 
 describe.each([
-  ["withdrawAction", bookingActions.withdrawAction, guestWithdraw],
-  ["cancelAction", bookingActions.cancelAction, guestCancel],
+  ["withdrawAction", (id: string, locale: string) => bookingActions.withdrawAction(id, locale), guestWithdraw],
+  ["cancelAction", (id: string, locale: string) => bookingActions.cancelAction(id, "full", locale), guestCancel],
 ] as const)("%s", (_name, action, service) => {
   test("an anonymous caller is sent to login with the booking page as next", async () => {
     await expect(action(BOOKING, "ko")).rejects.toThrow("NEXT_REDIRECT");
@@ -255,12 +256,30 @@ describe("booking actions succeed for the caller's own booking", () => {
 
   test("cancelAction returns the server-computed refund", async () => {
     vi.mocked(guestCancel).mockResolvedValueOnce({ refundKrw: 1_300_000 });
-    expect(await bookingActions.cancelAction(BOOKING, "en")).toEqual({ ok: true, refundKrw: 1_300_000 });
+    expect(await bookingActions.cancelAction(BOOKING, "deposit_only", "en")).toEqual({ ok: true, refundKrw: 1_300_000 });
     expect(guestCancel).toHaveBeenCalledWith(
       expect.objectContaining({ appUrl: "http://localhost:3000", adminEmails: ["admin@example.com"] }),
       "u1",
       BOOKING,
+      "deposit_only",
     );
     expect(revalidatePath).toHaveBeenCalledWith("/[locale]/bookings", "page");
+  });
+});
+
+describe("cancelAction expected refund kind", () => {
+  beforeEach(() => {
+    guard.signedIn = true;
+  });
+
+  test.each(["not_allowed", "", undefined, "FULL"])("rejects expected kind %j as VALIDATION without a call", async (kind) => {
+    expect(await bookingActions.cancelAction(BOOKING, kind as never, "en")).toEqual({ ok: false, error: "VALIDATION" });
+    expect(guestCancel).not.toHaveBeenCalled();
+  });
+
+  test("a changed refund comes back as REFUND_CHANGED and the page is revalidated with the new preview", async () => {
+    vi.mocked(guestCancel).mockRejectedValueOnce(new GuestError("REFUND_CHANGED"));
+    expect(await bookingActions.cancelAction(BOOKING, "full", "en")).toEqual({ ok: false, error: "REFUND_CHANGED" });
+    expect(revalidatePath).toHaveBeenCalledWith("/[locale]/bookings/[id]", "page");
   });
 });

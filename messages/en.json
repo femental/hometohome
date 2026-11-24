@@ -203,7 +203,8 @@
     "FORBIDDEN": "You don't have access to this booking.",
     "CANCEL_NOT_ALLOWED": "From the move-in day, the booking cannot be cancelled online.",
     "VALIDATION": "Please check the highlighted fields.",
-    "NOT_FOUND": "This room could not be found or is no longer open for booking."
+    "NOT_FOUND": "This room could not be found or is no longer open for booking.",
+    "REFUND_CHANGED": "The refund for this cancellation has changed. Please review the new amount and confirm again."
   },
   "legal": {
     "metaTitle": {
@@ -245,6 +246,7 @@
     "guestsLabel": "Guests",
     "priceHeading": "Price",
     "priceNote": "Fixed when you sent the request.",
+    "cancellationRule": "Cancellation: full refund until {time}, 7 days before move-in. After that, only the deposit is refunded. From the move-in day, the booking cannot be cancelled online.",
     "notice": {
       "requested": "The host is reviewing your request. If there is no reply by {time}, the request expires automatically.",
       "awaiting_payment": "Your request was approved. Pay the first payment by {time} to confirm the booking. After that the room is released.",

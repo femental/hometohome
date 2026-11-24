@@ -14,7 +14,7 @@ import type { Db } from "@/server/db";
 import { sendEmail } from "@/server/email/send";
 import type { TemplateData } from "@/server/email/templates";
 import type { LocalizedText } from "@/server/rooms/search";
-import { toGuestErrorKey, type GuestErrorKey } from "./errors";
+import { GuestError, toGuestErrorKey, type GuestErrorKey } from "./errors";
 import type { RequestDeps } from "./requests";
 
 // A guest only ever sees and changes their own bookings. Someone else's booking and a booking that
@@ -205,14 +205,38 @@ export async function guestWithdraw(deps: Pick<GuestBookingDeps, "db" | "now">, 
   await withdrawRequest(deps.db, id, userId, deps.now);
 }
 
+/** A refund the guest can confirm: what the preview showed them. */
+export type ExpectedRefundKind = "full" | "deposit_only";
+
 /**
  * Cancels the guest's own confirmed booking with the refund the rules give now (pending refund row
  * on the confirming payment), then emails the guest (`booking_cancelled`, their locale) and every
  * operator (`admin_booking_cancelled`, Korean). Email problems are logged and never change the result.
+ *
+ * `expectedKind` is the refund the guest saw and confirmed. If the rules give a different one at
+ * `deps.now` (e.g. the full-refund deadline passed since the preview), it refuses with GuestError
+ * REFUND_CHANGED before any write. The decision depends only on `deps.now` and fields a cancellation
+ * cannot race with (move-in, amounts), so `cancelBooking` with the same `now` decides the same.
  */
-export async function guestCancel(deps: GuestBookingDeps, userId: string, id: string): Promise<{ refundKrw: number }> {
+export async function guestCancel(
+  deps: GuestBookingDeps,
+  userId: string,
+  id: string,
+  expectedKind: ExpectedRefundKind,
+): Promise<{ refundKrw: number }> {
   await assertOwn(deps.db, userId, id);
-  const { refund } = await cancelBooking(deps.db, id, { kind: "guest", userId }, deps.now);
+  const actor = { kind: "guest", userId } as const;
+
+  let current: CancellationPreview["kind"] | null = null;
+  try {
+    current = (await previewCancellation(deps.db, id, actor, deps.now)).kind;
+  } catch (e) {
+    // Not cancellable at all (not confirmed, move-in day…): cancelBooking reports it with its own code.
+    if (!(e instanceof BookingError)) throw e;
+  }
+  if (current !== null && current !== expectedKind) throw new GuestError("REFUND_CHANGED");
+
+  const { refund } = await cancelBooking(deps.db, id, actor, deps.now);
 
   try {
     const b = await deps.db.booking.findUniqueOrThrow({
