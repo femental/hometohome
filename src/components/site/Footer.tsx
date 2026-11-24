@@ -1,7 +1,8 @@
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
+import { businessInfo } from "@/server/env";
+import { BusinessInfoLines } from "./BusinessInfoLines";
 
-// Pages arrive in Task 7 (src/app/[locale]/(legal)/...).
 const LEGAL_LINKS = [
   { href: "/terms", key: "terms" },
   { href: "/privacy", key: "privacy" },
@@ -9,7 +10,7 @@ const LEGAL_LINKS = [
   { href: "/faq", key: "faq" },
 ] as const;
 
-/** Guest site footer. TODO(Task 7): business registration details (사업자 정보) from env. */
+/** Guest site footer: legal links, business registration details (public env keys), copyright. */
 export async function Footer() {
   const t = await getTranslations("footer");
 
@@ -27,6 +28,7 @@ export async function Footer() {
             ))}
           </ul>
         </nav>
+        <BusinessInfoLines info={businessInfo()} />
         <p className="text-xs text-zinc-500">{t("copyright")}</p>
       </div>
     </footer>

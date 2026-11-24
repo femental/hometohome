@@ -20,7 +20,16 @@
     "refundPolicy": "Refund policy",
     "faq": "FAQ",
     "legalLinks": "Legal",
-    "copyright": "© hometohome"
+    "copyright": "© hometohome",
+    "business": {
+      "name": "Business name",
+      "rep": "Representative",
+      "regNo": "Business registration no.",
+      "mailOrderNo": "Mail-order business report no.",
+      "address": "Address",
+      "phone": "Phone",
+      "email": "Email"
+    }
   },
   "auth": {
     "title": "Log in",
@@ -195,5 +204,15 @@
     "CANCEL_NOT_ALLOWED": "From the move-in day, the booking cannot be cancelled online.",
     "VALIDATION": "Please check the highlighted fields.",
     "NOT_FOUND": "This room could not be found or is no longer open for booking."
+  },
+  "legal": {
+    "metaTitle": {
+      "terms": "Terms of service",
+      "privacy": "Privacy policy",
+      "refundPolicy": "Refund policy",
+      "faq": "FAQ"
+    },
+    "draftBanner": "Draft — legal review required before publishing",
+    "lastUpdated": "Last updated: 24 November 2026"
   }
 }

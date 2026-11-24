@@ -2,8 +2,22 @@ import "server-only";
 import { z } from "zod";
 
 const emptyToUndefined = (v: unknown) => (v === "" ? undefined : v);
+const blankToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
+/** Business registration details shown in the public footer (all optional; empty = hidden). */
+const businessShape = {
+  BUSINESS_NAME: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),
+  BUSINESS_REP: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),
+  BUSINESS_REG_NO: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),
+  MAIL_ORDER_NO: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),
+  BUSINESS_ADDRESS: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),
+  BUSINESS_PHONE: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),
+  BUSINESS_EMAIL: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),
+};
+const businessSchema = z.object(businessShape);
 
 const schema = z.object({
+  ...businessShape,
   DATABASE_URL: z.string().min(1),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
@@ -39,6 +53,17 @@ export function parseServerEnv(raw: Record<string, string | undefined>): ServerE
     throw new Error(`Invalid environment variables: ${detail}`);
   }
   return result.data;
+}
+
+export type BusinessInfo = z.output<typeof businessSchema>;
+
+/** Only the public business keys: the footer must not depend on (or validate) unrelated secrets. */
+export function parseBusinessInfo(raw: Record<string, string | undefined>): BusinessInfo {
+  return businessSchema.parse(raw);
+}
+
+export function businessInfo(): BusinessInfo {
+  return parseBusinessInfo(process.env);
 }
 
 let cached: ServerEnv | undefined;
