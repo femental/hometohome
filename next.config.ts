@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs/config";
 import createNextIntlPlugin from "next-intl/plugin";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
@@ -34,8 +35,6 @@ const nextConfig: NextConfig = {
   experimental: {
     // Enables forbidden() / forbidden.tsx (used by requireAdmin for signed-in non-admins).
     authInterrupts: true,
-    // Photo uploads (max 4 MiB + multipart overhead) go through Server Actions; Vercel caps bodies at ~4.5 MB.
-    serverActions: { bodySizeLimit: "5mb" },
   },
   turbopack: {
     rules: {
@@ -47,4 +46,14 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withNextIntl(nextConfig);
+const config = withNextIntl(nextConfig);
+
+// Sentry's build step only uploads source maps; it runs when a DSN and an auth token are configured.
+export default process.env.NEXT_PUBLIC_SENTRY_DSN && process.env.SENTRY_AUTH_TOKEN
+  ? withSentryConfig(config, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      silent: !process.env.CI,
+    })
+  : config;

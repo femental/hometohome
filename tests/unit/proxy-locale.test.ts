@@ -94,3 +94,8 @@ test("/auth, /login, /api and files are left alone", async () => {
     expect(res.headers.get("x-middleware-next")).toBe("1");
   }
 });
+
+test("in production, missing Supabase env is a clear error instead of everyone signed out", async () => {
+  vi.stubEnv("NODE_ENV", "production");
+  await expect(proxy(request("/en"))).rejects.toThrow(/NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY/);
+});

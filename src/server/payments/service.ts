@@ -10,6 +10,7 @@ import { confirmPaid } from "@/server/bookings/service";
 import type { Db } from "@/server/db";
 import { sendEmail } from "@/server/email/send";
 import type { EmailSender } from "@/server/email/sender";
+import { reportProblem } from "@/server/observability";
 import type { TemplateData, TemplateName } from "@/server/email/templates";
 import type { UsdKrwRate } from "@/server/fx/rates";
 import { verifyPortOneWebhook, type PortOneClient, type PortOneConfig } from "./portone";
@@ -273,9 +274,9 @@ async function abortAtPg(d: PayDeps, paymentId: string, bookingId: string, reaso
       await d.pg.cancelPayment(paymentId, { amount: left, reason: "Payment could not be applied to the booking", currentCancellableAmount: left });
     }
   } catch (e) {
-    console.error(`[payments] could not cancel payment ${paymentId} at the PG`, e);
+    reportProblem("could not cancel an aborted payment at the PG", { paymentId, bookingId }, e);
   }
-  console.error(`[payments] payment ${paymentId} aborted: ${reason}`);
+  reportProblem("payment aborted", { paymentId, bookingId, reason });
   await notify(d, bookingId, null, { template: "admin_payment_problem", extra: { reason } });
 }
 
@@ -325,7 +326,7 @@ export async function handlePortOneWebhook(d: PayDeps, secret: string, rawBody: 
     }
     return 200;
   } catch (e) {
-    console.error(`[payments] webhook ${hook.type} for ${hook.paymentId} failed`, e);
+    reportProblem("webhook handling failed", { type: hook.type, paymentId: hook.paymentId }, e);
     return 500;
   }
 }

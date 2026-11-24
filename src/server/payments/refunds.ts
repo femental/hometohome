@@ -4,6 +4,7 @@ import { fromDbDate } from "@/server/bookings/availability";
 import type { Db } from "@/server/db";
 import { sendEmail } from "@/server/email/send";
 import type { EmailSender } from "@/server/email/sender";
+import { reportProblem } from "@/server/observability";
 import { PortOneError, type PortOneClient } from "./portone";
 
 export interface RefundDeps {
@@ -87,7 +88,7 @@ export async function executeRefund(
   } catch (e) {
     if (!(e instanceof PortOneError)) {
       // Unknown outcome (e.g. DB error after the PG call): leave it `processing` for an operator retry.
-      console.error(`[payments] refund ${refundId} interrupted`, e);
+      reportProblem("refund interrupted (left processing)", { refundId, paymentId: refund.paymentId }, e);
       throw e;
     }
     if (e.kind === "CANCELLABLE_AMOUNT_CONSISTENCY_BROKEN" || e.kind === "PAYMENT_ALREADY_CANCELLED") {
@@ -95,7 +96,7 @@ export async function executeRefund(
       const pg = await d.pg.getPayment(refund.paymentId).catch(() => null);
       if (pg && pg.amount.cancelled - before >= refund.amountRefundedMinor) return await record("done");
     }
-    console.error(`[payments] refund ${refundId} failed: ${e.message}`);
+    reportProblem("refund failed at the PG", { refundId, paymentId: refund.paymentId, kind: e.kind }, e);
     return await record("failed");
   }
 }

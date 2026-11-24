@@ -16,14 +16,21 @@ type CookieToSet = { name: string; value: string; options?: Parameters<NextRespo
 
 /**
  * Refreshes the Supabase session cookies on the request and collects the ones to send back.
- * Without Supabase env (unit tests) it skips the refresh and reports an anonymous visitor.
+ * Without Supabase env it skips the refresh and reports an anonymous visitor (tests, local dev);
+ * in production that is a deployment error and fails loudly.
  */
 async function refreshSession(request: NextRequest) {
   const cookies: CookieToSet[] = [];
   const headers: Record<string, string> = {};
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return { user: null, cookies, headers };
+  if (!url || !key) {
+    // A production build without them would silently treat everyone as signed out.
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Proxy: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set in production.");
+    }
+    return { user: null, cookies, headers };
+  }
 
   const supabase = createServerClient(url, key, {
     cookies: {
