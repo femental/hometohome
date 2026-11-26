@@ -43,3 +43,9 @@ npm run test:db     # DB 통합 (db:up 필요)
 npm run typecheck
 npm run lint
 ```
+
+E2E(Playwright): 로컬 Supabase(`npm run sb:start`)가 켜진 상태에서 `npm run e2e`. 마이그레이션·사진 버킷·테스트용 숙소를 자동으로 준비하고,
+가짜 결제 모드(`PORTONE_FAKE=1`)로 3123 포트에 개발 서버를 띄워 게스트 예약→승인→결제→취소·환불과 운영자 사진 업로드·차단 기간을 확인한다.
+처음 한 번은 `npx playwright install chromium`이 필요하다.
+
+CI(GitHub Actions)는 push·PR마다 typecheck → lint → unit → db → build를 돌리고, E2E는 Actions 탭에서 수동 실행(`workflow_dispatch`)한다.
