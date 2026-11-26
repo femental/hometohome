@@ -23,6 +23,9 @@ export function checkDeployTarget(env: Record<string, string | undefined>, args:
   if ((local && url.port === TEST_PORT) || dbName.endsWith("_test")) {
     return { ok: false, reason: `Refusing to migrate the test database (${url.host}/${dbName}); tests manage it themselves.` };
   }
+  if (url.port === "6543" || url.searchParams.get("pgbouncer") === "true") {
+    return { ok: false, reason: "That is the transaction pooler (port 6543). Migrations need the direct or session connection (port 5432) in DIRECT_URL." };
+  }
   if (!local && !args.includes("--yes")) {
     return { ok: false, reason: `${url.host} is a remote database. Re-run with --yes to apply migrations to it.` };
   }

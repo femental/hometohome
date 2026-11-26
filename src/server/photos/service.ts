@@ -52,6 +52,8 @@ function repo(db: Db, kind: PhotoOwnerKind) {
       ownerExists: async (ownerId: string) =>
         (await db.house.count({ where: { id: ownerId } })) > 0,
       find: (id: string) => db.housePhoto.findUnique({ where: { id } }),
+      findByPath: (ownerId: string, storagePath: string) =>
+        db.housePhoto.findFirst({ where: { houseId: ownerId, storagePath } }),
       delete: (id: string) => db.housePhoto.delete({ where: { id } }),
       setSort: (id: string, sortOrder: number) =>
         db.housePhoto.update({ where: { id }, data: { sortOrder } }),
@@ -69,6 +71,8 @@ function repo(db: Db, kind: PhotoOwnerKind) {
     ownerExists: async (ownerId: string) =>
       (await db.room.count({ where: { id: ownerId } })) > 0,
     find: (id: string) => db.roomPhoto.findUnique({ where: { id } }),
+    findByPath: (ownerId: string, storagePath: string) =>
+      db.roomPhoto.findFirst({ where: { roomId: ownerId, storagePath } }),
     delete: (id: string) => db.roomPhoto.delete({ where: { id } }),
     setSort: (id: string, sortOrder: number) =>
       db.roomPhoto.update({ where: { id }, data: { sortOrder } }),
@@ -146,6 +150,9 @@ export async function registerPhoto(
   if (!FILE_NAME_RE.test(name)) throw new PhotoError("NOT_FOUND");
   const r = repo(db, owner.kind);
   if (!(await r.ownerExists(owner.id))) throw new PhotoError("NOT_FOUND");
+  // A double submit or a retry after a lost response: the row already exists.
+  const existing = await r.findByPath(owner.id, path);
+  if (existing) return existing;
 
   const bytes = await storage.read(path);
   if (!bytes) throw new PhotoError("NOT_FOUND");

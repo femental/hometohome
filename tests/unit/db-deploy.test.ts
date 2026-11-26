@@ -29,6 +29,13 @@ test("DIRECT_URL wins over the pooled DATABASE_URL; local Supabase needs no --ye
   expect(r).toMatchObject({ ok: true, host: "127.0.0.1:54322" });
 });
 
+test("refuses the transaction pooler", () => {
+  expect(checkDeployTarget({ DATABASE_URL: "postgresql://u:p@aws-0.pooler.supabase.com:6543/postgres" }, ["--yes"])).toMatchObject({
+    ok: false,
+    reason: expect.stringMatching(/pooler/),
+  });
+});
+
 test("rejects malformed and non-postgres URLs", () => {
   expect(checkDeployTarget({ DIRECT_URL: "not a url" }, ["--yes"]).ok).toBe(false);
   expect(checkDeployTarget({ DIRECT_URL: "mysql://u@h:3306/db" }, ["--yes"]).ok).toBe(false);

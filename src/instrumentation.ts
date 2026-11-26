@@ -1,4 +1,5 @@
 import type { Instrumentation } from "next";
+import { stripAuthQuery } from "@/lib/sentry-scrub";
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
@@ -10,6 +11,7 @@ export async function register() {
     dsn,
     environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV,
     tracesSampleRate: 0,
+    beforeSend: stripAuthQuery,
   });
 }
 

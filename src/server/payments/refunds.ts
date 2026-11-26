@@ -63,8 +63,13 @@ export async function executeRefund(
   const charged = refund.payment.amountChargedMinor;
   const before = await ledgerRefunded(d.db, refund.paymentId, refundId);
 
-  const record = async (status: "done" | "failed", pgRefundId?: string) => {
-    await d.db.refund.update({ where: { id: refundId }, data: { status, ...(pgRefundId ? { pgRefundId } : {}) } });
+  const record = async (status: "done" | "failed", pgRefundId?: string): Promise<RefundOutcome> => {
+    // Conditional: a webhook-driven reconcile may have settled (and announced) this row meanwhile.
+    const { count } = await d.db.refund.updateMany({
+      where: { id: refundId, status: "processing" },
+      data: { status, ...(pgRefundId ? { pgRefundId } : {}) },
+    });
+    if (count === 0) return "skipped";
     if (status === "done") {
       const fully = before + refund.amountRefundedMinor >= charged;
       await d.db.payment.update({ where: { id: refund.paymentId }, data: { status: fully ? "refunded" : "partially_refunded" } });
@@ -102,6 +107,8 @@ export async function executeRefund(
 }
 
 const RECONCILE_AFTER_MS = 10 * 60_000;
+/** A PG cancellation still unsettled after this long needs a person. */
+const STUCK_ALERT_MS = 24 * 3600_000;
 
 /**
  * Settles PG refunds left `processing` (asynchronous PG cancellations, or an executor that stopped
@@ -126,7 +133,12 @@ export async function reconcileProcessingRefunds(
   for (const r of rows) {
     const pg = await d.pg.getPayment(r.paymentId).catch(() => null);
     const before = await ledgerRefunded(d.db, r.paymentId, r.id);
-    if (!pg || pg.amount.cancelled - before < r.amountRefundedMinor) continue;
+    if (!pg || pg.amount.cancelled - before < r.amountRefundedMinor) {
+      if (!opts.paymentId && r.createdAt.getTime() <= d.now.getTime() - STUCK_ALERT_MS) {
+        reportProblem("refund still processing at the PG after 24h", { refundId: r.id, paymentId: r.paymentId });
+      }
+      continue;
+    }
     const { count } = await d.db.refund.updateMany({ where: { id: r.id, status: "processing" }, data: { status: "done" } });
     if (count === 0) continue;
     const fully = before + r.amountRefundedMinor >= r.payment.amountChargedMinor;

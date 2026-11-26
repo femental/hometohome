@@ -37,11 +37,15 @@ export function e2eEnv(): Record<string, string> {
   const needStatus = !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || !process.env.SUPABASE_SERVICE_ROLE_KEY;
   const status = needStatus ? supabaseStatus() : {};
   const databaseUrl = process.env.DATABASE_URL ?? status.DB_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-  const host = new URL(databaseUrl).hostname;
-  if (host !== "127.0.0.1" && host !== "localhost") throw new Error(`E2E runs only against a local database, not ${host}.`);
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? status.API_URL ?? "http://127.0.0.1:54321";
+  // The run creates users and uploads files: never against anything but the local stack.
+  for (const u of [databaseUrl, supabaseUrl]) {
+    const host = new URL(u).hostname;
+    if (host !== "127.0.0.1" && host !== "localhost") throw new Error(`E2E runs only against local Supabase, not ${host}.`);
+  }
   cached = {
     DATABASE_URL: databaseUrl,
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL ?? status.API_URL ?? "http://127.0.0.1:54321",
+    NEXT_PUBLIC_SUPABASE_URL: supabaseUrl,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? status.ANON_KEY ?? "",
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? status.SERVICE_ROLE_KEY ?? "",
     APP_URL,

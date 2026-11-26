@@ -47,6 +47,9 @@ test("guest books, pays and cancels a room", async ({ browser }) => {
   await guest.getByRole("button", { name: "Cancel booking" }).click();
   await guest.getByRole("button", { name: "Yes, cancel booking" }).click();
   await expect(guest.getByText("Cancelled").first()).toBeVisible();
-  await guest.reload();
-  await expect(guest.getByText(/Refund .*: completed/)).toBeVisible();
+  // The refund runs after the cancellation commits: reload until it shows.
+  await expect(async () => {
+    await guest.reload();
+    await expect(guest.getByText(/Refund .*: completed/)).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
 });

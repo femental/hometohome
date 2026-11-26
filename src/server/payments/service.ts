@@ -284,7 +284,8 @@ const STALE_PENDING_MS = 24 * 3600_000;
 
 /**
  * Daily: checkouts left `pending` for 24 hours. One the PG shows PAID is completed normally (the
- * guest paid but neither the redirect nor the webhook reached us); the rest are marked cancelled.
+ * guest paid but neither the redirect nor the webhook reached us); ones the PG does not show as
+ * paid are marked cancelled. A PG lookup error skips the payment until the next run.
  */
 export async function cleanupStalePayments(d: PayDeps): Promise<{ cancelled: number; completed: number }> {
   const stale = await d.db.payment.findMany({
@@ -295,13 +296,18 @@ export async function cleanupStalePayments(d: PayDeps): Promise<{ cancelled: num
   let cancelled = 0;
   let completed = 0;
   for (const { id } of stale) {
-    const pg = await d.pg.getPayment(id).catch(() => null);
-    if (pg?.status === "PAID") {
-      await completePayment(d, id);
-      completed++;
-    } else {
-      const { count } = await d.db.payment.updateMany({ where: { id, status: "pending" }, data: { status: "cancelled" } });
-      cancelled += count;
+    try {
+      // A lookup error says nothing about the payment: leave it for the next run.
+      const pg = await d.pg.getPayment(id);
+      if (pg?.status === "PAID") {
+        await completePayment(d, id);
+        completed++;
+      } else {
+        const { count } = await d.db.payment.updateMany({ where: { id, status: "pending" }, data: { status: "cancelled" } });
+        cancelled += count;
+      }
+    } catch (e) {
+      reportProblem("stale payment cleanup failed", { paymentId: id }, e);
     }
   }
   return { cancelled, completed };

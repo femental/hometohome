@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "@/server/db";
 import { MemoryEmailSender } from "@/server/email/sender";
 import { FakePortOne } from "@/server/payments/portone";
@@ -232,6 +232,20 @@ describe("operational hardening", () => {
     expect(res).toEqual({ cancelled: 1, completed: 1 });
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: abandoned.paymentId } })).status).toBe("cancelled");
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: paidLate.paymentId } })).status).toBe("paid");
+  });
+
+  test("a PG lookup error leaves the stale payment pending for the next run", async () => {
+    const d = deps();
+    const { guest, booking } = await awaitingBooking();
+    const p = await preparePayment(d, guest.id, booking.id, "card", "en");
+    await prisma.payment.updateMany({ data: { createdAt: new Date(now.getTime() - 25 * 3600_000) } });
+    d.pg.getPayment = async () => {
+      throw new Error("PG down");
+    };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await cleanupStalePayments(d)).toEqual({ cancelled: 0, completed: 0 });
+    spy.mockRestore();
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: p.paymentId } })).status).toBe("pending");
   });
 });
 

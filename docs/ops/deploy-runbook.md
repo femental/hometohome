@@ -4,6 +4,10 @@
 
 > 표기: `<도메인>`은 실제 서비스 도메인(예: `hometohome.kr`), `<프로젝트ref>`는 Supabase 프로젝트 ID입니다.
 
+> ⚠️ **운영 키는 그 명령 한 번에만.** 아래 명령들은 `powershell -Command { … }` 안에서 실행해 운영 URL·키가 지금 터미널에 남지 않게 합니다.
+> `$env:…=`로 터미널에 직접 넣으면 같은 창에서 이어서 `npm run dev`, `npm run e2e`, `npx prisma migrate dev`를 실행할 때 **운영 DB·저장소를 건드립니다**.
+> 실수로 넣었다면 그 창을 닫거나 `Remove-Item Env:DIRECT_URL, Env:DATABASE_URL, Env:SUPABASE_SERVICE_ROLE_KEY, Env:NEXT_PUBLIC_SUPABASE_URL`.
+
 ---
 
 ## 1. 필요한 계정·서비스
@@ -40,7 +44,7 @@
 7. **사진 버킷 생성** (한 번만, 로컬 PC에서):
 
    ```powershell
-   $env:NEXT_PUBLIC_SUPABASE_URL="https://<프로젝트ref>.supabase.co"; $env:SUPABASE_SERVICE_ROLE_KEY="<service_role 키>"; npm run setup:storage
+   powershell -Command { $env:NEXT_PUBLIC_SUPABASE_URL="https://<프로젝트ref>.supabase.co"; $env:SUPABASE_SERVICE_ROLE_KEY="<service_role 키>"; npm run setup:storage }
    ```
 
    공개 버킷 `photos`(10MB, JPG/PNG/WEBP만)가 만들어집니다. 다시 실행해도 안전합니다.
@@ -50,15 +54,17 @@
 
 ## 3. DB 마이그레이션
 
-운영 DB에는 **직접 연결 URL**로만 적용합니다. `.env` 파일은 읽지 않으므로 셸에서 명시합니다.
+운영 DB에는 **포트 5432 연결**(Session pooler 또는 Direct)로만 적용합니다. `.env` 파일은 읽지 않으므로 명령에서 명시합니다.
+Supabase 대시보드 Connect → **Session pooler** 문자열을 쓰면 됩니다(Direct 주소 `db.<ref>.supabase.co`는 IPv6 전용이라 집·사무실 망에서 안 될 수 있음).
 
 ```powershell
-$env:DIRECT_URL="postgresql://postgres:<비밀번호>@db.<프로젝트ref>.supabase.co:5432/postgres"; npm run db:deploy -- --yes
+powershell -Command { $env:DIRECT_URL="postgresql://postgres.<프로젝트ref>:<비밀번호>@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres"; npm run db:deploy -- --yes }
 ```
 
 - 테스트 DB(`localhost:54329`, 이름이 `_test`로 끝남)는 거부됩니다.
+- 트랜잭션 풀러(포트 6543)는 거부됩니다.
 - 원격 DB는 `--yes` 없이 거부됩니다.
-- 새 버전을 배포할 때마다 **Vercel 배포 전에** 실행합니다(마이그레이션은 추가 위주라 구버전 앱과 함께 동작).
+- 새 마이그레이션이 있는 버전은 **`main`에 병합하기 전에** 실행합니다(병합하면 Vercel이 바로 배포함). 마이그레이션은 추가 위주라 구버전 앱과 함께 동작합니다.
 
 ---
 
@@ -128,9 +134,9 @@ $env:DIRECT_URL="postgresql://postgres:<비밀번호>@db.<프로젝트ref>.supab
 
 ## 7. 이후 배포
 
-1. `main`에 병합 → GitHub Actions CI 통과 확인.
-2. 새 마이그레이션이 있으면 `npm run db:deploy -- --yes` 먼저.
-3. Vercel이 `main`을 자동 배포. 문제 시 Vercel → Deployments에서 이전 배포로 **Instant Rollback**.
+1. PR의 GitHub Actions CI 통과 확인.
+2. 새 마이그레이션이 있으면 **병합 전에** `npm run db:deploy -- --yes` (3장).
+3. `main`에 병합 → Vercel이 자동 배포. 문제 시 Vercel → Deployments에서 이전 배포로 **Instant Rollback**.
 
 ---
 
@@ -139,7 +145,8 @@ $env:DIRECT_URL="postgresql://postgres:<비밀번호>@db.<프로젝트ref>.supab
 ### 환불 실패
 - 증상: 운영자 메일 "결제 문제" / 예약 상세의 환불 상태 "실패".
 - 조치: 예약 상세 → 환불 목록 → **환불 재시도**. 같은 금액이 두 번 나가지 않도록 시스템이 PG의 취소 가능 금액을 확인합니다.
-- PortOne 쪽에서 계속 거절되면 콘솔에서 원인 확인 후 직접 취소하고, 앱에서는 다음 날 자동 대조(daily)로 "완료"가 됩니다.
+- PortOne 쪽에서 계속 거절되면 콘솔에서 원인 확인 후 직접 취소한 다음, 앱에서 **환불 재시도**를 한 번 더 누릅니다. PG에 이미 취소된 금액을 확인하고 "완료"로 기록합니다(이중 환불 없음).
+- PG가 비동기로 처리 중인 환불이 24시간 넘게 끝나지 않으면 매일 작업이 오류 감시(Sentry 또는 로그 `[problem]`)에 알립니다. PortOne 콘솔에서 상태를 확인하세요.
 - 무통장(직접 송금) 환불은 송금 후 **환불 완료 표시**.
 
 ### 결제는 됐는데 예약이 확정되지 않음

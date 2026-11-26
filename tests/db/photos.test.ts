@@ -253,6 +253,9 @@ describe("signed direct upload", () => {
     await storage.put(up.path, png().bytes, "image/png"); // what the browser's direct upload does
     const photo = await registerPhoto(prisma, storage, owner, up.path);
     expect(photo.storagePath).toBe(up.path);
+    // A double submit returns the same row instead of a second one for the same file.
+    expect((await registerPhoto(prisma, storage, owner, up.path)).id).toBe(photo.id);
+    expect(await prisma.roomPhoto.count()).toBe(1);
   });
 
   test("registerPhoto refuses a path outside the owner's prefix and a missing object", async () => {

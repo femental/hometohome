@@ -11,7 +11,8 @@ Room-booking MVP for foreigners in Seoul (Next.js 16, Prisma 7, Supabase auth).
 5. `.env.example`을 `.env.local`로 복사하고 `npx supabase status`의 API URL, anon key, service_role key를 채움.
    개발 DB는 Supabase 로컬 Postgres(`postgresql://postgres:postgres@127.0.0.1:54322/postgres`)
 6. 스키마 적용: `npx prisma migrate deploy`
-7. `npm run dev` — http://localhost:3000
+7. 사진 버킷 만들기(한 번만): `npm run setup:storage` — 없으면 사진 업로드가 "Bucket not found"로 실패
+8. `npm run dev` — http://localhost:3000
 
 종료: `npm run sb:stop`
 

@@ -59,10 +59,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-      - run: supabase start
+      - run: npx supabase start # the pinned devDependency, same CLI e2e/env.ts uses
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
         env:
